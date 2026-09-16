@@ -2225,6 +2225,46 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   transform:translateX(-50%) !important;
 }
 
+
+/* OK表示を5文字枠のレイアウトから完全に切り離す */
+.kana-match{
+  position:relative !important;
+}
+.kana-match-status{
+  position:absolute !important;
+  left:50% !important;
+  right:auto !important;
+  bottom:18px !important;
+  top:auto !important;
+  width:auto !important;
+  min-width:120px !important;
+  height:0 !important;
+  min-height:0 !important;
+  margin:0 !important;
+  padding:0 !important;
+  transform:translateX(-50%) !important;
+  text-align:center !important;
+  font-weight:400 !important;
+  line-height:1.15 !important;
+  z-index:30 !important;
+  pointer-events:none !important;
+}
+
+/* スマホ用に以前 static に戻していた指定も無効化 */
+@media (max-width:520px){
+  .kana-match-status{
+    position:absolute !important;
+    left:50% !important;
+    right:auto !important;
+    bottom:18px !important;
+    top:auto !important;
+    width:auto !important;
+    height:0 !important;
+    margin:0 !important;
+    transform:translateX(-50%) !important;
+  }
+}
+
 </style>
 </head>
 <body>
