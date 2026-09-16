@@ -3122,11 +3122,15 @@ function createPlaybackAudio(stem){
   let pool=kanaPlaybackPools.get(stem);
   if(!pool){
     const cached=getCachedAudio(stem);
-    const alternate=cached.cloneNode(true);
-    alternate.preload="auto";
-    try{alternate.load()}catch(_){}
-    // 先読み済み要素を1つ目に使い、同音連続時だけ2つ目へ交互に切り替える。
-    pool={index:0,audios:[cached,alternate]};
+    const audios=[cached];
+    // 0.3秒重ねても同じ音の要素を再利用して途中停止しないよう、十分な数を持つ。
+    for(let i=0;i<3;i++){
+      const alternate=cached.cloneNode(true);
+      alternate.preload="auto";
+      try{alternate.load()}catch(_){}
+      audios.push(alternate);
+    }
+    pool={index:0,audios};
     kanaPlaybackPools.set(stem,pool);
   }
   const audio=pool.audios[pool.index++%pool.audios.length];
@@ -3264,8 +3268,27 @@ function playWordStem(stem,run){
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
     a.addEventListener("timeupdate",nearEnd);
-    const played=a.play();
-    if(played&&typeof played.catch==="function")played.catch(failed);
+    let playAttempts=0;
+    const startPlayback=()=>{
+      if(run!==wordAudioRun){cancel();return}
+      playAttempts++;
+      let played;
+      try{played=a.play()}catch(_){played=null}
+      if(played&&typeof played.then==="function"){
+        played.catch(()=>{
+          if(playAttempts<3){
+            // 読み込み直後などの一時的な play() 失敗は短時間で再試行する。
+            setTimeout(startPlayback,60);
+          }else{
+            failed();
+          }
+        });
+      }else if(!played&&a.paused){
+        if(playAttempts<3)setTimeout(startPlayback,60);
+        else failed();
+      }
+    };
+    startPlayback();
     if(run!==wordAudioRun)cancel();
   });
 }
