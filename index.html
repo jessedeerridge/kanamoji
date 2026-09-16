@@ -2807,7 +2807,7 @@ function audioKanaToHira(ch){
 
 function getCachedAudio(stem){
   if(kanaAudioCache.has(stem)) return kanaAudioCache.get(stem);
-  const a=new Audio(`./audio/${stem}.mp3`);
+  const a=new Audio(`./${stem}.mp3`);
   a.preload="auto";
   kanaAudioCache.set(stem,a);
   return a;
@@ -2816,37 +2816,53 @@ function getCachedAudio(stem){
 function preloadOneStem(stem){
   return new Promise(resolve=>{
     const a=getCachedAudio(stem);
-    if(a.readyState>=3){ resolve(true); return; }
+    if(a.readyState>=2){ resolve(true); return; }
 
     let done=false;
     const finish=(ok)=>{
       if(done) return;
       done=true;
       clearTimeout(timer);
-      a.removeEventListener("canplaythrough",onReady);
+      a.removeEventListener("loadeddata",onReady);
       a.removeEventListener("canplay",onReady);
       a.removeEventListener("error",onError);
       resolve(ok);
     };
     const onReady=()=>finish(true);
     const onError=()=>finish(false);
-    const timer=setTimeout(()=>finish(a.readyState>=2),8000);
+    const timer=setTimeout(()=>finish(a.readyState>=2),2500);
 
-    a.addEventListener("canplaythrough",onReady,{once:true});
+    a.addEventListener("loadeddata",onReady,{once:true});
     a.addEventListener("canplay",onReady,{once:true});
     a.addEventListener("error",onError,{once:true});
     try{ a.load(); }catch(_){ finish(false); }
   });
 }
 
+function audioCharsNeededForStage(key){
+  if(key==="yoon") return Object.keys(YOON_AUDIO_FILES);
+  if(key==="all") return Object.keys(KANA_AUDIO_FILES);
+
+  const order=["a","k","s","t","n","h","m","y","r","w"];
+  const idx=order.indexOf(key);
+  if(idx<0) return [];
+
+  // 後半の単語・復習で使うため、現在の行＋それ以前の行を全部準備する。
+  const needed=[];
+  for(let i=0;i<=idx;i++){
+    needed.push(...(STAGE_AUDIO_CHARS[order[i]]||[]));
+  }
+  return [...new Set(needed)];
+}
+
 async function preloadStageAudio(key){
-  let stems=[];
+  let stems;
   if(key==="yoon"){
     stems=Object.values(YOON_AUDIO_FILES);
-  }else if(key==="all"){
-    stems=Object.values(KANA_AUDIO_FILES);
   }else{
-    stems=(STAGE_AUDIO_CHARS[key]||[]).map(ch=>KANA_AUDIO_FILES[ch]).filter(Boolean);
+    stems=audioCharsNeededForStage(key)
+      .map(ch=>KANA_AUDIO_FILES[ch])
+      .filter(Boolean);
   }
   await Promise.all(stems.map(preloadOneStem));
 }
@@ -4897,12 +4913,13 @@ function bindTap(el,handler){
 const titleScreen=document.getElementById("titleScreen");
 const gameScreen=document.getElementById("gameScreen");
 
-async function startStage(key){
+function startStage(key){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
-  // 選択した範囲の文字音声を全部読み込み終えてから問題画面を開始
-  await preloadStageAudio(key);
+  // ステージ開始を音声読み込みで止めない。
+  // 必要な音声は裏で読み込み、画面はすぐ開始する。
+  preloadStageAudio(key).catch(()=>{});
 
   const modeBtn=document.getElementById("titleModeButton");
   const isTest = modeBtn && modeBtn.textContent.trim()==="テスト";
@@ -4986,7 +5003,7 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
       const unlocked=await requestAppPassword("此内容需要密码。");
       if(!unlocked)return;
     }
-    await startStage(stage);
+    startStage(stage);
   });
 });
 
