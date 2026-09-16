@@ -2044,78 +2044,86 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   -webkit-text-fill-color:var(--ink);
 }
 
-/* ===== 最初の5文字選択：中央配置＋広い間隔 ===== */
-.kana-match-pieces,
-.kana-match-piece-row{
-  justify-content:center !important;
-  gap:24px !important;
+
+/* ===== 配置修正版 ===== */
+
+/* 最初の5文字選択：右側ステータスの幅で左に寄らないようにする */
+.kana-match{
+  width:min(760px,100%);
+  margin:0 auto;
+  padding:8px 0 18px;
+  display:block;
+  position:relative;
+  text-align:center;
+}
+.kana-match-main{
+  width:100%;
+  min-width:0;
+}
+.kana-match-status{
+  position:absolute;
+  right:0;
+  top:8px;
+  width:110px;
 }
 
+/* 上の5枠と下の5ピースを同じ中心・同じ間隔にする */
+.kana-match-grid,
+.kana-match-bank{
+  display:grid;
+  grid-template-columns:repeat(5,58px);
+  gap:24px !important;
+  justify-content:center !important;
+  width:100%;
+}
 
-
-
-/* 最初の5文字選択：文字そのものの中心間隔を広げる */
+/* 単語練習の文字ピース：以前の誤ったflex/margin指定を完全に解除 */
 .kana-row{
-  display:flex !important;
+  display:grid !important;
+  grid-template-columns:repeat(5,58px) !important;
+  gap:24px !important;
   justify-content:center !important;
   align-items:center !important;
-  gap:0 !important;
   width:100% !important;
 }
 .kana-row > *{
-  margin-left:22px !important;
-  margin-right:22px !important;
+  margin:0 !important;
 }
 
-
-/* 最初の5文字選択：5個のピース同士の間隔 */
-.kana-match-bank{
-  column-gap:24px !important;
-  row-gap:24px !important;
-  justify-content:center !important;
-}
 @media (max-width:520px){
+  .kana-match-grid,
   .kana-match-bank{
-    column-gap:16px !important;
+    gap:12px !important;
+  }
+  .kana-match-status{
+    position:static;
+    width:100%;
+    margin-top:10px;
+  }
+  .kana-row{
+    gap:12px !important;
+  }
+}
+
+@media (max-width:380px){
+  .kana-match-grid,
+  .kana-match-bank,
+  .kana-row{
+    gap:7px !important;
   }
 }
 
 
-/* 最初の5文字選択：上の枠と下のピースを同じ間隔で配置 */
-.kana-match-slots,
-.kana-match-bank{
-  column-gap:24px !important;
-  row-gap:24px !important;
-  justify-content:center !important;
-}
-
-@media (max-width:520px){
-  .kana-match-slots,
-  .kana-match-bank{
-    column-gap:16px !important;
-  }
-}
-
-
-/* 最初の5文字選択：上の5枠＋下の5ピースを実際の親要素で同じ間隔にする */
-.kana-match-grid,
-.kana-match-bank{
-  gap:24px !important;
-  justify-content:center !important;
-}
-
-/* 画面幅に合わせて、5個を保ったまま可能な限り間隔を確保 */
-@media (max-width:760px){
-  .kana-match-grid,
-  .kana-match-bank{ gap:16px !important; }
-}
-@media (max-width:500px){
-  .kana-match-grid,
-  .kana-match-bank{ gap:10px !important; }
-}
-@media (max-width:340px){
-  .kana-match-grid,
-  .kana-match-bank{ gap:7px !important; }
+/* 「音読さん」表示：練習枠の外・通常の太さ */
+.audio-credit,
+.ondoku-credit,
+.ondokusan,
+.ondoku-san{
+  font-weight:400 !important;
+  position:absolute !important;
+  right:8px !important;
+  bottom:-28px !important;
+  margin:0 !important;
 }
 
 </style>
