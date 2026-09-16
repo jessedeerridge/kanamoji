@@ -3204,9 +3204,11 @@ function audioCharsNeededForStage(key){
   const idx=order.indexOf(key);
   if(idx<0) return [];
 
-  // 後半の単語・復習で使うため、現在の行＋それ以前の行を全部準備する。
-  const needed=[];
-  for(let i=0;i<=idx;i++){
+  // まず現在の行を読み込む。以前の実装は「あ行」から順番に待たせたため、
+  // ら行等では実際に今必要な音が数十ファイルの後ろに並んでいた。
+  const needed=[...(STAGE_AUDIO_CHARS[key]||[])];
+  // 後半の単語・復習用は、現在の行のロードを妨げない後順位にする。
+  for(let i=idx-1;i>=0;i--){
     needed.push(...(STAGE_AUDIO_CHARS[order[i]]||[]));
   }
   return [...new Set(needed)];
