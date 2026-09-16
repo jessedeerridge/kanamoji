@@ -5180,8 +5180,6 @@ const titleScreen=document.getElementById("titleScreen");
 const gameScreen=document.getElementById("gameScreen");
 
 async function startCurrentStageTest(){
-  const unlocked=await requestAppPassword("切换到测试模式需要密码。");
-  if(!unlocked)return;
   const named=await requestStudentName();
   if(!named)return;
   const modeBtn=document.getElementById("titleModeButton");
