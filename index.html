@@ -182,6 +182,7 @@ button,.title-practice-badge{
   margin-bottom:16px;
 }
 .progress{font-weight:900;font-size:20px}
+.progress-label{margin-right:.35em;color:#6f695f;font-size:.78em}
 
 /* ===== 通常クイズ：位置指定をここだけに一本化 ===== */
 .question{
@@ -2361,7 +2362,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 
   <div class="game">
     <div class="top">
-      <div class="progress"><span id="stageName">あ行</span>　<span id="qNum">1</span>/<span id="qTotal">20</span></div>
+      <div class="progress"><span id="stageName">あ行</span>　<span class="progress-label">のこり</span><span id="qNum">20</span>/<span id="qTotal">20</span></div>
     </div>
 
     <div id="playArea">
@@ -3314,8 +3315,14 @@ function question(){
 }
 
 function isPracticeMode(){
-  const modeBtn=document.getElementById("titleModeButton");
-  return !modeBtn || modeBtn.textContent.trim()==="練習";
+  return !shuffleMode;
+}
+
+function updateQuestionProgress(total=activeQuestions().length){
+  const safeTotal=Math.max(0,Number(total)||0);
+  const solved=Math.min(safeTotal,correctSet.size);
+  qNumEl.textContent=Math.max(0,safeTotal-solved);
+  qTotalEl.textContent=safeTotal;
 }
 
 function shouldPrefillKatakanaChar(ch){
@@ -3438,8 +3445,7 @@ function renderQuestion(){
   document.querySelectorAll(".picture .yoon-replay-btn").forEach(el=>el.remove());
 
   stageNameEl.textContent=stage().name;
-  qNumEl.textContent=qIndex+1;
-  qTotalEl.textContent=activeQuestions().length;
+  updateQuestionProgress();
   zhEl.textContent=question().zh;
   resultEl.textContent=viewingSolvedQuestion ? "○ せいかい！" : "";
   emojiEl.textContent=question().icon;
@@ -3561,8 +3567,7 @@ function visibleRows(){
   });
 
   // 練習モードでは、答えに必要な文字を含む行だけ表示
-  const modeBtn=document.getElementById("titleModeButton");
-  const isPractice = !modeBtn || modeBtn.textContent.trim()==="練習";
+  const isPractice = !shuffleMode;
 
   if(isPractice){
     if(kanaScriptMode==="katakana" && ROWS[stageKey]){
@@ -3699,8 +3704,7 @@ function renderYoonListeningQuestion(){
   if(!q) return;
 
   stageNameEl.textContent="拗音練習";
-  qNumEl.textContent=qIndex+1;
-  qTotalEl.textContent=activeQuestions().length;
+  updateQuestionProgress();
 
   zhEl.textContent="";
   emojiEl.textContent="";
@@ -4045,6 +4049,7 @@ function checkAnswer(){
     if(made===target){
       locked=true;
       correctSet.add(qIndex);
+      updateQuestionProgress();
       resultEl.textContent="○ せいかい！";
 
       // 正解後は音声キューを待たず、確実に次へ進む。
@@ -4080,6 +4085,7 @@ function checkAnswer(){
   if(made===targetWord){
     locked=true;
     correctSet.add(qIndex);
+    updateQuestionProgress();
     resultEl.textContent="○ せいかい！";
 
     // 音声状態に依存させず、正解したら必ず次へ進む。
@@ -4132,8 +4138,9 @@ function startReviewRound(){
 
 function showPass(){
   locked=true;
+  const completedTest=shuffleMode;
   if(window.KanaProgress){
-    if(shuffleMode)window.KanaProgress.record(launchedStageKey,100);
+    if(completedTest)window.KanaProgress.record(launchedStageKey,100);
     else window.KanaProgress.recordPractice(launchedStageKey);
   }
   reviewing=false;
@@ -4150,9 +4157,12 @@ function showPass(){
            style="height:${keepHeight}px;min-height:${keepHeight}px">
         <div class="complete-content">
           <div class="complete-title">${titleText}</div>
+          ${completedTest ? "" : '<button class="next-btn practice-test-btn" id="completeStageTestBtn" type="button">このステージをテスト</button>'}
         </div>
       </div>
     `;
+    const completeTestBtn=document.getElementById("completeStageTestBtn");
+    if(completeTestBtn)bindTap(completeTestBtn,startCurrentStageTest);
     return;
   }
 }
@@ -4289,21 +4299,16 @@ function setMatchNavigationHidden(hidden){
 }
 
 function shouldShowHiraganaMatch(key){
-  const modeBtn=document.getElementById("titleModeButton");
-  const isPractice = !modeBtn || modeBtn.textContent.trim()==="練習";
-
   // 拗音練習は通常のひらがなマッチを通さず、直接拗音問題へ入る
   return kanaScriptMode==="hiragana"
-    && isPractice
+    && !shuffleMode
     && key!=="test"
     && key!=="all"
     && key!=="yoon";
 }
 
 function shouldShowKatakanaMatch(key){
-  const modeBtn=document.getElementById("titleModeButton");
-  const isPractice = !modeBtn || modeBtn.textContent.trim()==="練習";
-  return kanaScriptMode==="katakana" && isPractice && key!=="test";
+  return kanaScriptMode==="katakana" && !shuffleMode && key!=="test";
 }
 
 function startQuizAfterMatch(){
@@ -4361,8 +4366,8 @@ function renderKatakanaAllStep(){
   }
 
   stageNameEl.textContent=(KATAKANA_STAGES[key]?.name || key);
-  qNumEl.textContent="";
-  qTotalEl.textContent="";
+  qNumEl.textContent=Math.max(0,validSteps.length-katakanaStepIndex);
+  qTotalEl.textContent=validSteps.length;
 
   const targetKata=toKatakana(current.ch);
 
@@ -4507,8 +4512,8 @@ function renderHiraganaAllStep(){
   }
 
   stageNameEl.textContent=STAGES[key]?.name || key;
-  qNumEl.textContent="";
-  qTotalEl.textContent="";
+  qNumEl.textContent=Math.max(0,validSteps.length-hiraganaStepIndex);
+  qTotalEl.textContent=validSteps.length;
 
   playArea.innerHTML=`
     <div class="kana-match">
@@ -4611,8 +4616,8 @@ function renderHiraganaMatch(){
   const validSteps=layout.map((ch,index)=>({ch,index})).filter(x=>x.ch);
 
   stageNameEl.textContent=STAGES[stageKey]?.name || stageKey;
-  qNumEl.textContent="";
-  qTotalEl.textContent="";
+  qNumEl.textContent=Math.max(0,actual.length-hiraganaStepSolved.length);
+  qTotalEl.textContent=actual.length;
 
   // --------------------------------------------------
   // 1回目：ひらがな ↔ ローマ字 の通常マッチ
@@ -4663,6 +4668,7 @@ function renderHiraganaMatch(){
         slot.dataset.done="1";
         piece.classList.add("used");
         completed++;
+        qNumEl.textContent=Math.max(0,actual.length-completed);
 
         if(completed===actual.length){
           if(statusEl) statusEl.innerHTML="<span>OK！</span>";
@@ -4836,8 +4842,8 @@ function renderKatakanaMatch(){
   const actual=layout.filter(Boolean);
 
   stageNameEl.textContent=(KATAKANA_STAGES[stageKey]?.name || stage().name);
-  qNumEl.textContent="";
-  qTotalEl.textContent="";
+  qNumEl.textContent=Math.max(0,actual.length-katakanaStepSolved.length);
+  qTotalEl.textContent=actual.length;
 
   // -----------------------------
   // フェーズ1：通常の5文字マッチ
@@ -4888,6 +4894,7 @@ function renderKatakanaMatch(){
         slot.dataset.done="1";
         piece.classList.add("used");
         completed++;
+        qNumEl.textContent=Math.max(0,actual.length-completed);
 
         if(completed===actual.length){
           if(statusEl) statusEl.innerHTML="<span>OK！</span>";
@@ -5186,13 +5193,10 @@ function updateStageTestButton(){
 async function startCurrentStageTest(){
   const named=await requestStudentName();
   if(!named)return;
-  const modeBtn=document.getElementById("titleModeButton");
-  if(modeBtn)modeBtn.textContent="测试";
-  updateStageButtonLabels();
-  startStage(launchedStageKey);
+  startStage(launchedStageKey,{forceTest:true});
 }
 
-function startStage(key){
+function startStage(key,{forceTest=false}={}){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
@@ -5201,7 +5205,7 @@ function startStage(key){
   preloadStageAudio(key).catch(()=>{});
 
   const modeBtn=document.getElementById("titleModeButton");
-  const isTest = modeBtn && modeBtn.textContent.trim()==="测试";
+  const isTest = forceTest || (modeBtn && modeBtn.textContent.trim()==="测试");
 
   // 練習＝通常配置、テスト＝同じステージのばらばら配置
   shuffleMode = !!isTest;
@@ -5220,7 +5224,7 @@ function startStage(key){
   qIndex=0;
   locked=false;
 
-  if(key==="all" && kanaScriptMode==="katakana"){
+  if(key==="all" && kanaScriptMode==="katakana" && !shuffleMode){
     katakanaAllMode=true;
     katakanaAllStageIndex=0;
     katakanaStepIndex=0;
@@ -5231,7 +5235,7 @@ function startStage(key){
     return;
   }
 
-  if(key==="all" && kanaScriptMode==="hiragana"){
+  if(key==="all" && kanaScriptMode==="hiragana" && !shuffleMode){
     hiraganaAllMode=true;
     hiraganaAllStageIndex=0;
     hiraganaStepIndex=0;
