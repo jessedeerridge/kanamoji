@@ -150,6 +150,7 @@ body{
 .next-btn{
   border:3px solid var(--ink);
   background:#fff;
+  color:var(--ink);
   border-radius:12px;
   padding:10px 18px;
   min-height:48px;
@@ -1440,6 +1441,11 @@ button,.title-practice-badge{
 .complete.practice-complete{
   min-height:0;
 }
+.practice-test-btn{
+  display:block;
+  margin:24px auto 0;
+  pointer-events:auto;
+}
 
 
 /* ===== 正解済み問題に戻ったとき ===== */
@@ -2345,6 +2351,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
         <path d="M3 15.2 16 4l13 11.2v12.3c0 .8-.7 1.5-1.5 1.5H20v-9h-8v9H4.5c-.8 0-1.5-.7-1.5-1.5V15.2Z" fill="currentColor"/>
       </svg>
     </button>
+      <button class="next-btn" id="stageTestBtn" type="button" hidden>テスト</button>
     </div>
     <div class="game-controls-right">
       <button class="next-btn" id="backBtn">←もどる</button>
@@ -2380,9 +2387,9 @@ const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_M
 const safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),localProgressKey=()=>`${LOCAL_KEY}:${safeKey(localStorage.getItem("kanamoji_student_name")||"anonymous")}`,readLocal=()=>{try{const saved=localStorage.getItem(localProgressKey());if(saved)return JSON.parse(saved);const legacy=JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}");return legacy.name===(localStorage.getItem("kanamoji_student_name")||"")?legacy:{}}catch{return {}}},writeLocal=d=>localStorage.setItem(localProgressKey(),JSON.stringify(d)),state=document.getElementById("connectionState");let api=null;
 const progressStageKey=stage=>`${document.body.dataset.kanaMode||"hiragana"}:${stage}`;
 function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const done=Number(data.stages?.[`${script}:${btn.dataset.stage}`]?.bestPct)>=100;let img=btn.querySelector(".stage-stamp");if(done&&!img){img=document.createElement("img");img.src="./stamp.png";img.alt="達成";img.className="stage-stamp";img.style.transform=`rotate(${(Math.random()*4-2).toFixed(2)}deg)`;btn.appendChild(img)}else if(!done&&img)img.remove()})}
-function mergeProgress(local,remote,name){const merged={name,stages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
+function mergeProgress(local,remote,name){const merged={name,stages:{},practiceStages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}for(const stage of new Set([...Object.keys(remote.practiceStages||{}),...Object.keys(local.practiceStages||{})])){const l=local.practiceStages?.[stage]||{},r=remote.practiceStages?.[stage]||{};merged.practiceStages[stage]={cleared:Boolean(l.cleared||r.cleared),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
 async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged=mergeProgress(local,remote,name);writeLocal(merged);renderStamps(merged);await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
-window.KanaProgress={setName(){renderStamps();return sync()},refresh:renderStamps,record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);sync()}};renderStamps();
+window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);sync()}};renderStamps();
 try{const [{initializeApp},{getDatabase,ref,get,update,onValue}]=await Promise.all([import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")]),db=getDatabase(initializeApp(config));api={db,ref,get,update};onValue(ref(db,".info/connected"),snap=>{state.textContent=snap.val()===true?"--✧--":"--/--";if(snap.val()===true)sync()});sync()}catch{state.textContent="--/--"}
 </script>
 <script>
@@ -2793,6 +2800,7 @@ const KATAKANA_STAGES = {
 };
 
 let stageKey="a";
+let launchedStageKey="a";
 let qIndex=0;
 let selectedQuestions=[];
 let viewingSolvedQuestion=false;
@@ -4124,7 +4132,10 @@ function startReviewRound(){
 
 function showPass(){
   locked=true;
-  if(shuffleMode && window.KanaProgress) window.KanaProgress.record(stageKey,100);
+  if(window.KanaProgress){
+    if(shuffleMode)window.KanaProgress.record(launchedStageKey,100);
+    else window.KanaProgress.recordPractice(launchedStageKey);
+  }
   reviewing=false;
 
   const titleText = "いいですね！👍";
@@ -4139,9 +4150,12 @@ function showPass(){
            style="height:${keepHeight}px;min-height:${keepHeight}px">
         <div class="complete-content">
           <div class="complete-title">${titleText}</div>
+          ${shuffleMode?'':'<button class="next-btn practice-test-btn" id="completeTestBtn" type="button">テスト</button>'}
         </div>
       </div>
     `;
+    const completeTestBtn=document.getElementById("completeTestBtn");
+    if(completeTestBtn)bindTap(completeTestBtn,startCurrentStageTest);
     return;
   }
 }
@@ -5165,6 +5179,17 @@ function bindTap(el,handler){
 const titleScreen=document.getElementById("titleScreen");
 const gameScreen=document.getElementById("gameScreen");
 
+async function startCurrentStageTest(){
+  const unlocked=await requestAppPassword("切换到测试模式需要密码。");
+  if(!unlocked)return;
+  const named=await requestStudentName();
+  if(!named)return;
+  const modeBtn=document.getElementById("titleModeButton");
+  if(modeBtn)modeBtn.textContent="テスト";
+  updateStageButtonLabels();
+  startStage(launchedStageKey);
+}
+
 function startStage(key){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
@@ -5178,6 +5203,9 @@ function startStage(key){
 
   // 練習＝通常配置、テスト＝同じステージのばらばら配置
   shuffleMode = !!isTest;
+  launchedStageKey=key;
+  const stageTestBtn=document.getElementById("stageTestBtn");
+  if(stageTestBtn)stageTestBtn.hidden=shuffleMode;
 
   correctSet=new Set();
   reviewQueue=[];
@@ -5263,10 +5291,14 @@ bindTap(document.getElementById("titleBtn"),()=>{
   clearYoonAutoPlayTimer();
   stopKanaAudio();
   gameScreen.classList.remove("active");
+  const stageTestBtn=document.getElementById("stageTestBtn");
+  if(stageTestBtn)stageTestBtn.hidden=true;
   titleScreen.style.display="flex";
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="";
 });
+
+bindTap(document.getElementById("stageTestBtn"),startCurrentStageTest);
 
 bindTap(document.getElementById("backBtn"),()=>{
   if(locked)return;
