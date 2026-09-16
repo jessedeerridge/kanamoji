@@ -2265,9 +2265,10 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   }
 }
 
+.connection-state{position:fixed;right:10px;top:8px;z-index:130;color:#64748b;font:600 11px/1 system-ui;opacity:.48;letter-spacing:.08em;pointer-events:none}.title-stage-btn{position:relative}.stage-stamp{position:absolute;width:42px;height:42px;right:4px;top:50%;margin-top:-21px;object-fit:contain;pointer-events:none;opacity:.9;z-index:2}.name-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;background:rgba(15,23,42,.45);padding:18px}.name-overlay.open{display:grid}.name-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 20px 55px rgba(0,0,0,.25)}.name-panel h2{margin:0 0 8px}.name-panel p{color:#64748b;font-size:14px}.name-panel input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}.name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.name-actions button{padding:10px 16px;border:0;border-radius:10px;font-weight:700}.name-save{background:#2563eb;color:#fff}
 </style>
 </head>
-<body>
+<body><div id="connectionState" class="connection-state" aria-live="polite">--/--</div><div class="name-overlay" id="nameOverlay" aria-hidden="true"><form class="name-panel" id="nameForm"><h2>なまえ</h2><p>テストの記録に使う名前を入力してください。</p><input id="studentName" maxlength="40" autocomplete="name" required aria-label="名前"><div class="name-actions"><button type="button" id="nameCancel">キャンセル</button><button class="name-save" type="submit">保存</button></div></form></div>
 <div class="password-overlay" id="passwordOverlay" aria-hidden="true">
   <div class="password-panel" role="dialog" aria-modal="true" aria-labelledby="passwordTitle">
     <h2 id="passwordTitle">请输入密码</h2>
@@ -2374,6 +2375,14 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   </div>
 </div>
 
+<script type="module">
+const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",authDomain:"database-s-9e4b3.firebaseapp.com",databaseURL:"https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"database-s-9e4b3",storageBucket:"database-s-9e4b3.firebasestorage.app",messagingSenderId:"13648984683",appId:"1:13648984683:web:c782d2963c253df69b8f2e"};
+const readLocal=()=>{try{return JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}")}catch{return {}}},writeLocal=d=>localStorage.setItem(LOCAL_KEY,JSON.stringify(d)),safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),state=document.getElementById("connectionState");let api=null;
+function renderStamps(data=readLocal()){document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const done=Number(data.stages?.[btn.dataset.stage]?.bestPct)>=100;let img=btn.querySelector(".stage-stamp");if(done&&!img){img=document.createElement("img");img.src="./stamp.png";img.alt="達成";img.className="stage-stamp";img.style.transform=`rotate(${(Math.random()*4-2).toFixed(2)}deg)`;btn.appendChild(img)}else if(!done&&img)img.remove()})}
+async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged={name,stages:{...(remote.stages||{}),...(local.stages||{})}};for(const [stage,r] of Object.entries(remote.stages||{})){const l=local.stages?.[stage];if(!l||Number(r.bestPct)>Number(l.bestPct))merged.stages[stage]=r}writeLocal(merged);renderStamps(merged);await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
+window.KanaProgress={setName:sync,refresh:renderStamps,record(stage,pct){const data=readLocal(),old=data.stages?.[stage]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[stage]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);sync()}};renderStamps();
+try{const [{initializeApp},{getDatabase,ref,get,update,onValue}]=await Promise.all([import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")]),db=getDatabase(initializeApp(config));api={db,ref,get,update};onValue(ref(db,".info/connected"),snap=>{state.textContent=snap.val()===true?"--✧--":"--/--";if(snap.val()===true)sync()});sync()}catch{state.textContent="--/--"}
+</script>
 <script>
 const ROWS = {
   a:["あ","い","う","え","お"],
@@ -2925,6 +2934,7 @@ function updateStageButtonLabels(){
       btn.textContent = kanaScriptMode==="katakana" ? pair[1] : pair[0];
     }
   });
+  if(window.KanaProgress) window.KanaProgress.refresh();
 }
 
 function setSlotKana(slot,kana){
@@ -3107,30 +3117,8 @@ function playDroppedKana(ch){
 let kanaAudioPlayQueue = Promise.resolve();
 
 function playKanaQueued(stem){
-  kanaAudioPlayQueue = kanaAudioPlayQueue.then(() => new Promise(resolve => {
-    const a = getCachedAudio(stem);
-    if(!a){ resolve(false); return; }
-
-    try{
-      a.pause();
-      a.currentTime = 0;
-    }catch(_){}
-
-    const finish = () => {
-      resolve(true);
-      a.removeEventListener("ended", finish);
-      a.removeEventListener("error", finish);
-    };
-
-    a.addEventListener("ended", finish, {once:true});
-    a.addEventListener("error", finish, {once:true});
-
-    const p = a.play();
-    if(p && typeof p.catch === "function"){
-      p.catch(() => finish());
-    }
-  }));
-  return kanaAudioPlayQueue;
+  // 終了待ちのキューを使わず、タップした音をすぐ再生する。
+  return playStem(stem);
 }
 
 function playKanaAudio(kana){
@@ -4102,9 +4090,10 @@ function startReviewRound(){
 
 function showPass(){
   locked=true;
+  if(shuffleMode && window.KanaProgress) window.KanaProgress.record(stageKey,100);
   reviewing=false;
 
-  const titleText = shuffleMode ? "合格！🎉" : "いいね！👍";
+  const titleText = shuffleMode ? "合格！🎉" : "いいですね！👍";
 
   // 練習モード：日付・時間・透明絵文字・サインを出さない
   // さらに、クリア前の問題画面と同じ高さをそのまま維持する
@@ -5355,6 +5344,12 @@ function requestAppPassword(message){
   });
 })();
 
+let studentNameConfirmedThisSession=false;
+function requestStudentName(){
+  if(studentNameConfirmedThisSession)return Promise.resolve(true);
+  return new Promise(resolve=>{const overlay=document.getElementById("nameOverlay"),form=document.getElementById("nameForm"),input=document.getElementById("studentName"),cancel=document.getElementById("nameCancel");input.value=localStorage.getItem("kanamoji_student_name")||"";overlay.classList.add("open");overlay.setAttribute("aria-hidden","false");setTimeout(()=>input.focus(),0);const close=v=>{overlay.classList.remove("open");overlay.setAttribute("aria-hidden","true");form.removeEventListener("submit",save);cancel.removeEventListener("click",stop);resolve(v)},save=e=>{e.preventDefault();const name=input.value.trim();if(!name){input.focus();return}localStorage.setItem("kanamoji_student_name",name);studentNameConfirmedThisSession=true;if(window.KanaProgress)window.KanaProgress.setName(name);close(true)},stop=()=>close(false);form.addEventListener("submit",save);cancel.addEventListener("click",stop)});
+}
+
 (function(){
   const btn=document.getElementById("titleModeButton");
   if(!btn) return;
@@ -5366,6 +5361,8 @@ function requestAppPassword(message){
     if(toTest){
       const unlocked=await requestAppPassword("切换到测试模式需要密码。");
       if(!unlocked) return;
+      const named=await requestStudentName();
+      if(!named) return;
     }
 
     btn.textContent = toTest ? "テスト" : "練習";
