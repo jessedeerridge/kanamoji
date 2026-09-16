@@ -182,7 +182,12 @@ button,.title-practice-badge{
   margin-bottom:16px;
 }
 .progress{font-weight:900;font-size:20px}
-.progress-label{margin-right:.35em;color:#6f695f;font-size:.78em}
+.progress-count{
+  margin-left:.75em;
+  font-family:var(--ui-font);
+  font-weight:200;
+  font-variant-numeric:tabular-nums;
+}
 
 /* ===== 通常クイズ：位置指定をここだけに一本化 ===== */
 .question{
@@ -2362,7 +2367,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 
   <div class="game">
     <div class="top">
-      <div class="progress"><span id="stageName">あ行</span>　<span class="progress-label">のこり</span><span id="qNum">20</span>/<span id="qTotal">20</span></div>
+      <div class="progress"><span id="stageName">あ行</span><span class="progress-count"><span id="qNum">20</span>/<span id="qTotal">20</span></span></div>
     </div>
 
     <div id="playArea">
@@ -2383,7 +2388,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   </div>
 </div>
 
-<script type="module">
+<script>
 const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",authDomain:"database-s-9e4b3.firebaseapp.com",databaseURL:"https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"database-s-9e4b3",storageBucket:"database-s-9e4b3.firebasestorage.app",messagingSenderId:"13648984683",appId:"1:13648984683:web:c782d2963c253df69b8f2e"};
 const safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),localProgressKey=()=>`${LOCAL_KEY}:${safeKey(localStorage.getItem("kanamoji_student_name")||"anonymous")}`,readLocal=()=>{try{const saved=localStorage.getItem(localProgressKey());if(saved)return JSON.parse(saved);const legacy=JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}");return legacy.name===(localStorage.getItem("kanamoji_student_name")||"")?legacy:{}}catch{return {}}},writeLocal=d=>localStorage.setItem(localProgressKey(),JSON.stringify(d)),state=document.getElementById("connectionState");let api=null;
 const progressStageKey=stage=>`${document.body.dataset.kanaMode||"hiragana"}:${stage}`;
@@ -2391,7 +2396,18 @@ function renderStamps(data=readLocal()){const script=document.body.dataset.kanaM
 function mergeProgress(local,remote,name){const merged={name,stages:{},practiceStages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}for(const stage of new Set([...Object.keys(remote.practiceStages||{}),...Object.keys(local.practiceStages||{})])){const l=local.practiceStages?.[stage]||{},r=remote.practiceStages?.[stage]||{};merged.practiceStages[stage]={cleared:Boolean(l.cleared||r.cleared),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
 async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged=mergeProgress(local,remote,name);writeLocal(merged);renderStamps(merged);window.dispatchEvent(new CustomEvent("kana-practice-progress"));await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
 window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);return sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);window.dispatchEvent(new CustomEvent("kana-practice-progress"));return sync()}};renderStamps();
-try{const [{initializeApp},{getDatabase,ref,get,update,onValue}]=await Promise.all([import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")]),db=getDatabase(initializeApp(config));api={db,ref,get,update};onValue(ref(db,".info/connected"),snap=>{state.textContent=snap.val()===true?"--✧--":"--/--";if(snap.val()===true)sync()});sync()}catch{state.textContent="--/--"}
+Promise.all([
+  import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
+  import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")
+]).then(([{initializeApp},{getDatabase,ref,get,update,onValue}])=>{
+  const db=getDatabase(initializeApp(config));
+  api={db,ref,get,update};
+  onValue(ref(db,".info/connected"),snap=>{
+    state.textContent=snap.val()===true?"--✧--":"--/--";
+    if(snap.val()===true)sync();
+  });
+  sync();
+}).catch(()=>{state.textContent="--/--"});
 </script>
 <script>
 const ROWS = {
@@ -3042,6 +3058,13 @@ function getCachedAudio(stem){
   return a;
 }
 
+function createPlaybackAudio(stem){
+  const cached=getCachedAudio(stem);
+  const audio=cached.cloneNode(true);
+  audio.preload="auto";
+  return audio;
+}
+
 function preloadOneStem(stem){
   return new Promise(resolve=>{
     const a=getCachedAudio(stem);
@@ -3106,7 +3129,8 @@ function stopKanaAudio(){
 function playStem(stem){
   if(!stem) return Promise.resolve(false);
   stopKanaAudio();
-  const a=getCachedAudio(stem);
+  // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
+  const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
   try{ a.currentTime=0; }catch(_){}
   const p=a.play();
@@ -3145,16 +3169,26 @@ let wordAudioRun=0;
 function playStemToEnd(stem,run){
   if(!stem) return Promise.resolve(false);
   stopKanaAudio();
-  const a=getCachedAudio(stem);
+  // キャッシュした同じ Audio 要素を使い回すと、同音連続時に ended 状態が
+  // 残るブラウザがあるため、再生専用の要素を毎回作る。
+  const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
     let finished=false;
-    const finish=ok=>{if(finished)return;finished=true;clearTimeout(timer);a.removeEventListener("ended",ended);a.removeEventListener("error",failed);resolve(ok)};
+    const finish=ok=>{if(finished)return;finished=true;clearTimeout(timer);a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("timeupdate",nearEnd);resolve(ok)};
     const ended=()=>finish(true),failed=()=>finish(false);
+    // 音声末尾の無音を待たず、次の文字をすぐ発音する。
+    const nearEnd=()=>{
+      if(Number.isFinite(a.duration) && a.duration>.18 && a.duration-a.currentTime<=.1){
+        a.pause();
+        finish(true);
+      }
+    };
     const timer=setTimeout(()=>finish(false),4000);
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
+    a.addEventListener("timeupdate",nearEnd);
     const played=a.play();
     if(played&&typeof played.catch==="function")played.catch(failed);
     if(run!==wordAudioRun)finish(false);
@@ -3174,7 +3208,7 @@ async function playWordAudio(word){
     if(run!==wordAudioRun)return;
     const stem=YOON_AUDIO_FILES[units[i]]||KANA_AUDIO_FILES[units[i]];
     await playStemToEnd(stem,run);
-    if(i<units.length-1)await waitAudio(20);
+    if(i<units.length-1)await waitAudio(0);
   }
   if(run===wordAudioRun&&!wasSolved)locked=false;
 }
