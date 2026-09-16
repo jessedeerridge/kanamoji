@@ -3100,6 +3100,10 @@ const STAGE_AUDIO_CHARS = {
 
 const kanaAudioCache = new Map();
 const kanaPlaybackPools = new Map();
+const kanaPreloadJobs = new Map();
+const kanaPreloadQueue = [];
+const AUDIO_PRELOAD_CONCURRENCY = 4;
+let kanaPreloadsRunning = 0;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
 let lastPieceAudioPromise = Promise.resolve(true);
@@ -3118,6 +3122,7 @@ function getCachedAudio(stem){
   if(kanaAudioCache.has(stem)) return kanaAudioCache.get(stem);
   const a=new Audio(`./${stem}.mp3`);
   a.preload="auto";
+  a.playsInline=true;
   kanaAudioCache.set(stem,a);
   return a;
 }
@@ -3126,26 +3131,44 @@ function createPlaybackAudio(stem){
   let pool=kanaPlaybackPools.get(stem);
   if(!pool){
     const cached=getCachedAudio(stem);
-    const audios=[cached];
-    // 0.3秒重ねても同じ音の要素を再利用して途中停止しないよう、十分な数を持つ。
-    for(let i=0;i<3;i++){
-      const alternate=cached.cloneNode(true);
-      alternate.preload="auto";
-      try{alternate.load()}catch(_){}
-      audios.push(alternate);
-    }
-    pool={index:0,audios};
+    // 複製を一度に load() すると、特に中国からの高遅延回線では接続枠を
+    // 音声だけで使い切る。通常は読み込み済みの1要素だけを再利用する。
+    pool={audios:[cached]};
     kanaPlaybackPools.set(stem,pool);
   }
-  const audio=pool.audios[pool.index++%pool.audios.length];
+  let audio=pool.audios.find(item=>item.paused || item.ended);
+  // 単語の文字を少し重ねる場合に限り、複製を遅延生成する。
+  if(!audio && pool.audios.length<2){
+    audio=getCachedAudio(stem).cloneNode(true);
+    audio.preload="auto";
+    audio.playsInline=true;
+    pool.audios.push(audio);
+  }
+  audio=audio||pool.audios[0];
   try{audio.pause();audio.currentTime=0}catch(_){}
   return audio;
 }
 
 function preloadOneStem(stem){
-  return new Promise(resolve=>{
+  if(kanaPreloadJobs.has(stem))return kanaPreloadJobs.get(stem);
+  let resolveJob;
+  const job=new Promise(resolve=>{resolveJob=resolve});
+  kanaPreloadJobs.set(stem,job);
+  kanaPreloadQueue.push({stem,resolve:resolveJob});
+  pumpKanaPreloads();
+  return job;
+}
+
+function pumpKanaPreloads(){
+  while(kanaPreloadsRunning<AUDIO_PRELOAD_CONCURRENCY && kanaPreloadQueue.length){
+    const {stem,resolve}=kanaPreloadQueue.shift();
+    kanaPreloadsRunning++;
     const a=getCachedAudio(stem);
-    if(a.readyState>=2){ resolve(true); return; }
+    if(a.readyState>=2){
+      kanaPreloadsRunning--;
+      resolve(true);
+      continue;
+    }
 
     let done=false;
     const finish=(ok)=>{
@@ -3155,17 +3178,22 @@ function preloadOneStem(stem){
       a.removeEventListener("loadeddata",onReady);
       a.removeEventListener("canplay",onReady);
       a.removeEventListener("error",onError);
+      // 一時的な切断なら、次回のステージ開始で再取得できるようにする。
+      if(!ok)kanaPreloadJobs.delete(stem);
       resolve(ok);
+      kanaPreloadsRunning--;
+      pumpKanaPreloads();
     };
     const onReady=()=>finish(true);
     const onError=()=>finish(false);
-    const timer=setTimeout(()=>finish(a.readyState>=2),2500);
+    // GFW越しや混雑した学校回線でも接続を切り直さず、十分に待つ。
+    const timer=setTimeout(()=>finish(a.readyState>=2),8000);
 
     a.addEventListener("loadeddata",onReady,{once:true});
     a.addEventListener("canplay",onReady,{once:true});
     a.addEventListener("error",onError,{once:true});
     try{ a.load(); }catch(_){ finish(false); }
-  });
+  }
 }
 
 function audioCharsNeededForStage(key){
@@ -3217,8 +3245,11 @@ function playStem(stem){
     const finish=ok=>{
       if(finished)return;
       finished=true;
+      clearTimeout(watchdog);
       a.removeEventListener("ended",ended);
       a.removeEventListener("error",failed);
+      a.removeEventListener("canplay",start);
+      a.removeEventListener("loadeddata",start);
       if(activeKanaAudio===a){activeKanaAudio=null;activeKanaFinish=null}
       resolve(ok);
     };
@@ -3226,6 +3257,12 @@ function playStem(stem){
     activeKanaFinish=finish;
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
+    // 壊れたレスポンスや切断で ended/error のどちらも来ないブラウザがある。
+    // 呼び出し側を永久に止めず、次の音を再生できる状態へ必ず戻す。
+    const watchdog=setTimeout(()=>{
+      try{a.pause()}catch(_){}
+      finish(false);
+    },8000);
     let attempts=0;
     let starting=false;
     const start=()=>{
@@ -3238,22 +3275,23 @@ function playStem(stem){
         played.catch(()=>{
           starting=false;
           if(attempts<3){
-            try{a.load()}catch(_){}
-            setTimeout(start,80);
+            // load() は取得済みバイトまで捨てる実装があるため呼ばない。
+            setTimeout(start,160*attempts);
           }else failed();
         });
       }else if(!played&&a.paused){
         starting=false;
         if(attempts<3){
-          try{a.load()}catch(_){}
-          setTimeout(start,80);
+          setTimeout(start,160*attempts);
         }else failed();
       }
     };
     if(a.readyState<2){
       a.addEventListener("canplay",start,{once:true});
+      a.addEventListener("loadeddata",start,{once:true});
       try{a.load()}catch(_){}
-      setTimeout(start,180);
+      // canplay が通知されないWebViewもあるので、play()自身にも読み込みを任せる。
+      start();
     }else start();
   });
 }
