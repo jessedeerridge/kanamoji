@@ -304,7 +304,7 @@ button,.title-practice-badge{
   position:relative;
   display:block;
   width:min(100%,620px);
-  height:180px;
+  height:220px;
   margin:70px auto 0;
   overflow:hidden;
 }
@@ -627,7 +627,7 @@ button,.title-practice-badge{
 
   .kana-board,
   .kana-board.shuffled{margin-top:58px}
-  .kana-board.shuffled{height:160px}
+  .kana-board.shuffled{height:180px}
   .kana-row{
     grid-template-columns:repeat(5,48px);
     gap:5px;
@@ -2378,9 +2378,9 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 <script type="module">
 const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",authDomain:"database-s-9e4b3.firebaseapp.com",databaseURL:"https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"database-s-9e4b3",storageBucket:"database-s-9e4b3.firebasestorage.app",messagingSenderId:"13648984683",appId:"1:13648984683:web:c782d2963c253df69b8f2e"};
 const readLocal=()=>{try{return JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}")}catch{return {}}},writeLocal=d=>localStorage.setItem(LOCAL_KEY,JSON.stringify(d)),safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),state=document.getElementById("connectionState");let api=null;
-function renderStamps(data=readLocal()){document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const done=Number(data.stages?.[btn.dataset.stage]?.bestPct)>=100;let img=btn.querySelector(".stage-stamp");if(done&&!img){img=document.createElement("img");img.src="./stamp.png";img.alt="達成";img.className="stage-stamp";img.style.transform=`rotate(${(Math.random()*4-2).toFixed(2)}deg)`;btn.appendChild(img)}else if(!done&&img)img.remove()})}
-async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged={name,stages:{...(remote.stages||{}),...(local.stages||{})}};for(const [stage,r] of Object.entries(remote.stages||{})){const l=local.stages?.[stage];if(!l||Number(r.bestPct)>Number(l.bestPct))merged.stages[stage]=r}writeLocal(merged);renderStamps(merged);await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
-window.KanaProgress={setName:sync,refresh:renderStamps,record(stage,pct){const data=readLocal(),old=data.stages?.[stage]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[stage]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);sync()}};renderStamps();
+function renderStamps(mode="hiragana",data=readLocal()){document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const done=Number(data.stages?.[`${mode}:${btn.dataset.stage}`]?.bestPct)>=100;let img=btn.querySelector(".stage-stamp");if(done&&!img){img=document.createElement("img");img.src="./stamp.png";img.alt="達成";img.className="stage-stamp";img.style.transform=`rotate(${(Math.random()*4-2).toFixed(2)}deg)`;btn.appendChild(img)}else if(!done&&img)img.remove()})}
+async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged={name,stages:{...(remote.stages||{}),...(local.stages||{})}};for(const [stage,r] of Object.entries(remote.stages||{})){const l=local.stages?.[stage];if(!l||Number(r.bestPct)>Number(l.bestPct))merged.stages[stage]=r}writeLocal(merged);window.dispatchEvent(new Event("kana-progress-synced"));await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
+window.KanaProgress={setName:sync,refresh:renderStamps,record(stage,pct,mode="hiragana"){stage=`${mode}:${stage}`;const data=readLocal(),old=data.stages?.[stage]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[stage]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(mode,data);sync()}};renderStamps();
 try{const [{initializeApp},{getDatabase,ref,get,update,onValue}]=await Promise.all([import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")]),db=getDatabase(initializeApp(config));api={db,ref,get,update};onValue(ref(db,".info/connected"),snap=>{state.textContent=snap.val()===true?"--✧--":"--/--";if(snap.val()===true)sync()});sync()}catch{state.textContent="--/--"}
 </script>
 <script>
@@ -2934,7 +2934,7 @@ function updateStageButtonLabels(){
       btn.textContent = kanaScriptMode==="katakana" ? pair[1] : pair[0];
     }
   });
-  if(window.KanaProgress) window.KanaProgress.refresh();
+  if(window.KanaProgress) window.KanaProgress.refresh(kanaScriptMode);
 }
 
 function setSlotKana(slot,kana){
@@ -3881,17 +3881,17 @@ function renderBoard(){
     }
 
     let pool=[...answerChars];
-    pool.push(...extras.slice(0, Math.max(0,8-pool.length)));
+    pool.push(...extras.slice(0, Math.max(0,9-pool.length)));
 
-    // 念のため10個未満なら、まだ使っていない文字から補充。
-    if(pool.length<8){
+    // 念のため9個未満なら、まだ使っていない文字から補充。
+    if(pool.length<9){
       const used=new Set(pool);
       const rest=[...new Set(allKana)].filter(k=>!used.has(k));
       for(let i=rest.length-1;i>0;i--){
         const j=Math.floor(Math.random()*(i+1));
         [rest[i],rest[j]]=[rest[j],rest[i]];
       }
-      pool.push(...rest.slice(0,8-pool.length));
+      pool.push(...rest.slice(0,9-pool.length));
     }
 
     // 配置順もランダム
@@ -3902,17 +3902,17 @@ function renderBoard(){
 
     const row=document.createElement("div");
     row.className="kana-row";
-    pool.slice(0,8).forEach(k=>makeTile(k,row));
+    pool.slice(0,9).forEach(k=>makeTile(k,row));
     boardEl.appendChild(row);
 
-    // テストモード：4個×2段で、枠内・非重複・ほどよい間隔に固定。
+    // テストモード：3個×3段で、枠内・非重複・ほどよい間隔に固定。
     requestAnimationFrame(()=>{
       const tiles=[...boardEl.querySelectorAll(".tile")];
       const boardRect=boardEl.getBoundingClientRect();
       const tileSize = tiles[0] ? tiles[0].getBoundingClientRect().width : 58;
 
-      const cols=4;
-      const rows=2;
+      const cols=3;
+      const rows=3;
       const padX=16;
       const padY=12;
 
@@ -3922,9 +3922,9 @@ function renderBoard(){
       const cellH=usableH/rows;
 
       const jitterPatterns=[
-        [0,5,-4,3,-3,4,5,-2],
-        [4,-3,3,-4,2,5,-3,3],
-        [-3,4,0,5,4,-4,2,-2]
+        [0,5,-4,3,-3,4,5,-2,2],
+        [4,-3,3,-4,2,5,-3,3,-2],
+        [-3,4,0,5,4,-4,2,-2,3]
       ];
       const pattern=jitterPatterns[Math.floor(Math.random()*jitterPatterns.length)];
 
@@ -4090,47 +4090,20 @@ function startReviewRound(){
 
 function showPass(){
   locked=true;
-  if(shuffleMode && window.KanaProgress) window.KanaProgress.record(stageKey,100);
+  if(shuffleMode && window.KanaProgress) window.KanaProgress.record(stageKey,100,kanaScriptMode);
   reviewing=false;
 
-  const titleText = shuffleMode ? "合格！🎉" : "いいですね！👍";
-
-  // 練習モード：日付・時間・透明絵文字・サインを出さない
-  // さらに、クリア前の問題画面と同じ高さをそのまま維持する
-  if(!shuffleMode){
-    const playArea=document.getElementById("playArea");
-    const keepHeight=Math.max(1,Math.round(playArea.getBoundingClientRect().height));
-
-    playArea.innerHTML=`
-      <div class="complete practice-complete" id="completeArea"
-           style="height:${keepHeight}px;min-height:${keepHeight}px">
-        <div class="complete-content">
-          <div class="complete-title">${titleText}</div>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  // テストモード：従来どおり日付・時間・透明絵文字・サインを表示
-  const now=new Date();
-  const dateText=
-    `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ` +
-    `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
-
-  document.getElementById("playArea").innerHTML=`
-    <div class="complete" id="completeArea">
-      <div class="emoji-bg" id="emojiBg"></div>
+  // 練習・テストとも、完了画面は高さを保った「いいですね」だけにする。
+  const playArea=document.getElementById("playArea");
+  const keepHeight=Math.max(1,Math.round(playArea.getBoundingClientRect().height));
+  playArea.innerHTML=`
+    <div class="complete practice-complete" id="completeArea"
+         style="height:${keepHeight}px;min-height:${keepHeight}px">
       <div class="complete-content">
-        <div class="complete-title">${titleText}</div>
-        <div class="complete-date">${dateText}</div>
+        <div class="complete-title">いいですね！👍</div>
       </div>
-      <canvas id="signatureCanvas"></canvas>
     </div>
   `;
-
-  createEmojiBackground();
-  initSignatureCanvas();
 }
 
 function createEmojiBackground(){
@@ -5269,6 +5242,7 @@ bindTap(document.getElementById("nextBtn"),()=>{
 });
 
 updateStageButtonLabels();
+window.addEventListener("kana-progress-synced",()=>window.KanaProgress?.refresh(kanaScriptMode));
 
 function requestAppPassword(message){
   return new Promise((resolve)=>{
