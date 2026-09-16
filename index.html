@@ -3095,8 +3095,42 @@ function playStem(stem){
   return Promise.resolve(true);
 }
 
+
+/* ===== 音声キュー：押した音を途中で消さない ===== */
+let kanaAudioPlayQueue = Promise.resolve();
+
+function playKanaQueued(stem){
+  kanaAudioPlayQueue = kanaAudioPlayQueue.then(() => new Promise(resolve => {
+    const a = getCachedAudio(stem);
+    if(!a){ resolve(false); return; }
+
+    try{
+      a.pause();
+      a.currentTime = 0;
+    }catch(_){}
+
+    const finish = () => {
+      resolve(true);
+      a.removeEventListener("ended", finish);
+      a.removeEventListener("error", finish);
+    };
+
+    a.addEventListener("ended", finish, {once:true});
+    a.addEventListener("error", finish, {once:true});
+
+    const p = a.play();
+    if(p && typeof p.catch === "function"){
+      p.catch(() => finish());
+    }
+  }));
+  return kanaAudioPlayQueue;
+}
+
 function playKanaAudio(kana){
-  return playStem(KANA_AUDIO_FILES[audioKanaToHira(kana)]);
+  const ch = kana;
+  const stem = KANA_AUDIO_FILES[ch] || YOON_AUDIO_FILES[ch];
+  if(!stem) return Promise.resolve(false);
+  return playKanaQueued(stem);
 }
 function playYoonPieceAudio(pieceText){
   return playStem(YOON_AUDIO_FILES[pieceText]);
