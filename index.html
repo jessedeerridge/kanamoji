@@ -2278,9 +2278,10 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 .connection-state{position:fixed;right:10px;top:8px;z-index:130;color:#64748b;font:600 11px/1 system-ui;opacity:.48;letter-spacing:.08em;pointer-events:none}.title-stage-btn{position:relative}.stage-stamps{position:absolute;right:4px;bottom:3px;display:flex;align-items:center;gap:2px;pointer-events:none;z-index:2}.stage-stamp{display:block;width:27px;height:27px;flex:0 0 27px;object-fit:contain;opacity:.9}.name-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;background:rgba(15,23,42,.45);padding:18px}.name-overlay.open{display:grid}.name-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 20px 55px rgba(0,0,0,.25)}.name-panel h2{margin:0 0 8px}.name-panel p{color:#64748b;font-size:14px}.name-panel input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}.name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.name-actions button{padding:10px 16px;border:0;border-radius:10px;font-weight:700}.name-save{background:#2563eb;color:#fff}
-.stage-stamps{left:5px;right:auto;top:50%;bottom:auto;gap:0;transform:translateY(-50%)}
+.stage-stamps{left:auto;right:5px;top:50%;bottom:auto;gap:0;transform:translateY(-50%)}
 .stage-stamp{width:21px;height:21px;flex-basis:21px}
 .stage-stamp + .stage-stamp{margin-left:-11px}
+@media(max-width:340px){.stage-stamps{left:5px;right:auto}}
 </style>
 </head>
 <body><div id="connectionState" class="connection-state" aria-live="polite">--/--</div><div class="name-overlay" id="nameOverlay" aria-hidden="true"><form class="name-panel" id="nameForm"><h2>なまえ</h2><p>テストの記録に使う名前を入力してください。</p><input id="studentName" maxlength="40" autocomplete="name" required aria-label="名前"><div class="name-actions"><button type="button" id="nameCancel">キャンセル</button><button class="name-save" type="submit">保存</button></div></form></div>
@@ -3100,6 +3101,8 @@ const STAGE_AUDIO_CHARS = {
 const kanaAudioCache = new Map();
 const kanaPlaybackPools = new Map();
 let activeKanaAudio = null;
+let activeKanaFinish = null;
+let lastPieceAudioPromise = Promise.resolve(true);
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -3193,10 +3196,12 @@ async function preloadStageAudio(key){
 }
 
 function stopKanaAudio(){
+  if(activeKanaFinish)activeKanaFinish(false);
   if(activeKanaAudio){
     try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
     activeKanaAudio=null;
   }
+  activeKanaFinish=null;
 }
 
 function playStem(stem){
@@ -3206,11 +3211,24 @@ function playStem(stem){
   const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
   try{ a.currentTime=0; }catch(_){}
-  const p=a.play();
-  if(p && typeof p.then==="function"){
-    return p.then(()=>true).catch(()=>false);
-  }
-  return Promise.resolve(true);
+  return new Promise(resolve=>{
+    let finished=false;
+    const finish=ok=>{
+      if(finished)return;
+      finished=true;
+      a.removeEventListener("ended",ended);
+      a.removeEventListener("error",failed);
+      if(activeKanaAudio===a){activeKanaAudio=null;activeKanaFinish=null}
+      resolve(ok);
+    };
+    const ended=()=>finish(true),failed=()=>finish(false);
+    activeKanaFinish=finish;
+    a.addEventListener("ended",ended,{once:true});
+    a.addEventListener("error",failed,{once:true});
+    let played;
+    try{played=a.play()}catch(_){failed();return}
+    if(played&&typeof played.catch==="function")played.catch(failed);
+  });
 }
 
 
@@ -3261,7 +3279,7 @@ function playWordStem(stem,run){
     const ended=()=>{cleanup();advance(true)};
     const failed=()=>{cleanup();advance(false)};
     const nearEnd=()=>{
-      if(Number.isFinite(a.duration)&&a.duration>.3&&a.duration-a.currentTime<=.3)advance(true);
+      if(Number.isFinite(a.duration)&&a.duration-a.currentTime<=.6)advance(true);
     };
     const timer=setTimeout(cancel,4000);
     activeWordAudios.set(a,cancel);
@@ -3980,7 +3998,7 @@ function renderYoonBoard(){
       // 拗音モードでは、問題読み上げが残っていてもここで止める。
       // その後、選んだ拗音だけを再生するので次へ進むのが遅れない。
       cancelWordAudio();
-      playYoonPieceAudio(pieceText);
+      lastPieceAudioPromise=playYoonPieceAudio(pieceText);
 
       const slot=document.querySelector(".slot.yoon-slot");
       if(!slot) return;
@@ -3997,7 +4015,7 @@ function renderYoonBoard(){
       onDrop:slot=>{
         if(locked || viewingSolvedQuestion) return;
         cancelWordAudio();
-        playDroppedKana(pieceText);
+        lastPieceAudioPromise=playDroppedKana(pieceText);
         setSlotKana(slot,pieceText);
         checkAnswer();
       }
@@ -4025,7 +4043,7 @@ function renderBoard(){
 
       // カードをクリック／タップしたら、その文字を発音
       cancelWordAudio();
-      playKanaAudio(displayKana(k));
+      lastPieceAudioPromise=playKanaAudio(displayKana(k));
       const empty=[...document.querySelectorAll(".slot")].find(s=>!s.dataset.kanaValue);
       if(!empty) return;
       setSlotKana(empty,k);
@@ -4040,7 +4058,7 @@ function renderBoard(){
       onDrop:slot=>{
         if(locked || viewingSolvedQuestion || slot.dataset.prefilled==="1" || slot.dataset.solved==="1") return;
         cancelWordAudio();
-        playDroppedKana(k); // ドラッグした文字を必ず読む
+        lastPieceAudioPromise=playDroppedKana(k); // ドラッグした文字を必ず読む
         setSlotKana(slot,k);
         checkAnswer();
       }
@@ -4192,9 +4210,11 @@ function checkAnswer(){
       updateQuestionProgress();
       resultEl.textContent="○ せいかい！";
 
-      // 正解後は音声キューを待たず、確実に次へ進む。
+      // 最後に選んだピースの発音が完了してから次へ進む。
       const thisIndex=qIndex;
-      setTimeout(()=>{
+      const finalPieceAudio=lastPieceAudioPromise;
+      setTimeout(async()=>{
+        await finalPieceAudio;
         if(stageKey!=="yoon" || yoonPhase!=="word" || qIndex!==thisIndex) return;
         goNext();
       },320);
@@ -4228,9 +4248,11 @@ function checkAnswer(){
     updateQuestionProgress();
     resultEl.textContent="○ せいかい！";
 
-    // 音声状態に依存させず、正解したら必ず次へ進む。
+    // 最後に選んだピースの発音が完了してから次へ進む。
     const thisIndex=qIndex;
-    setTimeout(()=>{
+    const finalPieceAudio=lastPieceAudioPromise;
+    setTimeout(async()=>{
+      await finalPieceAudio;
       if(qIndex!==thisIndex) return;
       goNext();
     },520);
