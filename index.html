@@ -3013,6 +3013,8 @@ const STAGE_AUDIO_CHARS = {
 
 const kanaAudioCache = new Map();
 let activeKanaAudio = null;
+let activeKanaAudioFinish = null;
+let wordAudioSequence = 0;
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -3085,7 +3087,13 @@ async function preloadStageAudio(key){
   await Promise.all(stems.map(preloadOneStem));
 }
 
-function stopKanaAudio(){
+function stopKanaAudio(cancelWordSequence=true){
+  if(cancelWordSequence)wordAudioSequence++;
+  if(activeKanaAudioFinish){
+    const finish=activeKanaAudioFinish;
+    activeKanaAudioFinish=null;
+    finish(false);
+  }
   if(activeKanaAudio){
     try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
     activeKanaAudio=null;
@@ -3130,8 +3138,37 @@ function playKanaAudio(kana){
 function playYoonPieceAudio(pieceText){
   return playStem(YOON_AUDIO_FILES[pieceText]);
 }
-function playWordAudio(){
-  return Promise.resolve(false);
+function playStemUntilEnded(stem){
+  if(!stem) return Promise.resolve(false);
+  stopKanaAudio(false);
+  const audio=getCachedAudio(stem);
+  activeKanaAudio=audio;
+  try{audio.currentTime=0}catch(_){}
+  return new Promise(resolve=>{
+    let settled=false;
+    const finish=ok=>{if(settled)return;settled=true;clearTimeout(timeout);audio.removeEventListener("ended",ended);audio.removeEventListener("error",failed);if(activeKanaAudio===audio)activeKanaAudio=null;if(activeKanaAudioFinish===finish)activeKanaAudioFinish=null;resolve(ok)};
+    const ended=()=>finish(true),failed=()=>finish(false),timeout=setTimeout(()=>finish(false),4000);
+    activeKanaAudioFinish=finish;
+    audio.addEventListener("ended",ended,{once:true});
+    audio.addEventListener("error",failed,{once:true});
+    const playing=audio.play();
+    if(playing&&typeof playing.catch==="function")playing.catch(failed);
+  });
+}
+async function playWordAudio(word){
+  const sequence=++wordAudioSequence;
+  const chars=[...normalizeKanaString(word)].filter(ch=>KANA_AUDIO_FILES[audioKanaToHira(ch)]||YOON_AUDIO_FILES[ch]);
+  if(!chars.length)return false;
+  locked=true;
+  for(let i=0;i<chars.length;i++){
+    if(sequence!==wordAudioSequence)return false;
+    const ch=chars[i],stem=KANA_AUDIO_FILES[audioKanaToHira(ch)]||YOON_AUDIO_FILES[ch];
+    await playStemUntilEnded(stem);
+    if(sequence!==wordAudioSequence)return false;
+    if(i<chars.length-1)await waitAudio(1000);
+  }
+  if(sequence===wordAudioSequence)locked=false;
+  return true;
 }
 function waitAudio(ms){
   return new Promise(resolve=>setTimeout(resolve,ms));
@@ -3837,10 +3874,11 @@ function renderBoard(){
       // 正解済み問題を見ている間は、答えを変更しない
       if(viewingSolvedQuestion) return;
 
+      // 問題語の読み上げ中は、発音を中断せず文字操作も受け付けない。
+      if(locked) return;
+
       // カードをクリック／タップしたら、その文字を発音
       playKanaAudio(displayKana(k));
-
-      if(locked) return;
       const empty=[...document.querySelectorAll(".slot")].find(s=>!s.dataset.kanaValue);
       if(!empty) return;
       setSlotKana(empty,k);
