@@ -2278,7 +2278,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 .connection-state{position:fixed;right:10px;top:8px;z-index:130;color:#64748b;font:600 11px/1 system-ui;opacity:.48;letter-spacing:.08em;pointer-events:none}.title-stage-btn{position:relative}.stage-stamps{position:absolute;right:4px;bottom:3px;display:flex;align-items:center;gap:2px;pointer-events:none;z-index:2}.stage-stamp{display:block;width:27px;height:27px;flex:0 0 27px;object-fit:contain;opacity:.9}.name-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;background:rgba(15,23,42,.45);padding:18px}.name-overlay.open{display:grid}.name-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 20px 55px rgba(0,0,0,.25)}.name-panel h2{margin:0 0 8px}.name-panel p{color:#64748b;font-size:14px}.name-panel input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}.name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.name-actions button{padding:10px 16px;border:0;border-radius:10px;font-weight:700}.name-save{background:#2563eb;color:#fff}
-.stage-stamps{left:auto;right:5px;top:var(--stamp-top,50%);bottom:auto;gap:0;transform:translateY(-50%)}
+.stage-stamps{left:auto;right:5px;top:50%;bottom:auto;gap:0;transform:translateY(-50%)}
 .stage-stamp{width:21px;height:21px;flex-basis:21px}
 .stage-stamp + .stage-stamp{margin-left:-11px}
 @media(max-width:340px){.stage-stamps{left:5px;right:auto}}
@@ -2396,7 +2396,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",authDomain:"database-s-9e4b3.firebaseapp.com",databaseURL:"https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"database-s-9e4b3",storageBucket:"database-s-9e4b3.firebasestorage.app",messagingSenderId:"13648984683",appId:"1:13648984683:web:c782d2963c253df69b8f2e"};
 const safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),localProgressKey=()=>`${LOCAL_KEY}:${safeKey(localStorage.getItem("kanamoji_student_name")||"anonymous")}`,readLocal=()=>{try{const saved=localStorage.getItem(localProgressKey());if(saved)return JSON.parse(saved);const legacy=JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}");return legacy.name===(localStorage.getItem("kanamoji_student_name")||"")?legacy:{}}catch{return {}}},writeLocal=d=>localStorage.setItem(localProgressKey(),JSON.stringify(d)),state=document.getElementById("connectionState");let api=null;
 const progressStageKey=stage=>`${document.body.dataset.kanaMode||"hiragana"}:${stage}`;
-function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const progress=data.stages?.[`${script}:${btn.dataset.stage}`]||{},achieved=Number(progress.bestPct)>=100,count=achieved?Math.min(3,Math.max(1,Number(progress.count)||0)):0;btn.querySelector(".stage-stamps")?.remove();if(!count)return;const stamps=document.createElement("span");stamps.className="stage-stamps";stamps.style.setProperty("--stamp-top",`${22+Math.random()*56}%`);stamps.setAttribute("aria-label",`達成 ${count}回`);for(let i=0;i<count;i++){const img=document.createElement("img");img.src="./stamp.png";img.alt="";img.className="stage-stamp";img.style.transform=`rotate(${(Math.random()*4-2).toFixed(2)}deg)`;stamps.appendChild(img)}btn.appendChild(stamps)})}
+function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const progress=data.stages?.[`${script}:${btn.dataset.stage}`]||{},achieved=Number(progress.bestPct)>=100,count=achieved?Math.min(3,Math.max(1,Number(progress.count)||0)):0;btn.querySelector(".stage-stamps")?.remove();if(!count)return;const stamps=document.createElement("span");stamps.className="stage-stamps";stamps.setAttribute("aria-label",`達成 ${count}回`);for(let i=0;i<count;i++){const img=document.createElement("img");img.src="./stamp.png";img.alt="";img.className="stage-stamp";const offset=-16+Math.random()*32,angle=-2+Math.random()*4;img.style.transform=`translateY(${offset.toFixed(2)}px) rotate(${angle.toFixed(2)}deg)`;stamps.appendChild(img)}btn.appendChild(stamps)})}
 function mergeProgress(local,remote,name){const merged={name,stages:{},practiceStages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}for(const stage of new Set([...Object.keys(remote.practiceStages||{}),...Object.keys(local.practiceStages||{})])){const l=local.practiceStages?.[stage]||{},r=remote.practiceStages?.[stage]||{};merged.practiceStages[stage]={cleared:Boolean(l.cleared||r.cleared),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
 async function sync(){
   const name=localStorage.getItem("kanamoji_student_name")||"";
@@ -3103,6 +3103,7 @@ const kanaPlaybackPools = new Map();
 let activeKanaAudio = null;
 let activeKanaFinish = null;
 let lastPieceAudioPromise = Promise.resolve(true);
+let questionTransitionPending = false;
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -5319,24 +5320,46 @@ function switchStage(key){
 }
 
 
-function goNext(){
-  // 手動遷移でも自動遷移でも、音声を次の問題へ持ち越さない。
+async function goNext(){
+  if(questionTransitionPending)return;
+  questionTransitionPending=true;
+
+  // 最後に操作したピースの音を最後まで鳴らしてから、次の問題へ進む。
+  // 待機中に lastPieceAudioPromise が差し替わっても、この時点の音だけを待つ。
+  const pieceAudio=lastPieceAudioPromise;
+  try{await pieceAudio}catch(_){}
+
+  // 音が完了した後で前問の再生状態を破棄し、新しい問題の読み上げを始める。
   clearYoonAutoPlayTimer();
   cancelWordAudio();
   lastPieceAudioPromise=Promise.resolve(false);
-  if(stageKey==="yoon" && yoonPhase==="listen"){
+  try{
+    if(stageKey==="yoon" && yoonPhase==="listen"){
+      if(qIndex<activeQuestions().length-1){
+        qIndex++;
+        renderQuestion();
+      }else{
+        startYoonWordPhase();
+      }
+      return;
+    }
+
+    if(reviewing){
+      if(reviewQueue.length){
+        qIndex=reviewQueue.shift();
+        renderQuestion();
+      }else{
+        if(correctSet.size===activeQuestions().length){
+          showPass();
+        }else{
+          startReviewRound();
+        }
+      }
+      return;
+    }
+
     if(qIndex<activeQuestions().length-1){
       qIndex++;
-      renderQuestion();
-    }else{
-      startYoonWordPhase();
-    }
-    return;
-  }
-
-  if(reviewing){
-    if(reviewQueue.length){
-      qIndex=reviewQueue.shift();
       renderQuestion();
     }else{
       if(correctSet.size===activeQuestions().length){
@@ -5345,18 +5368,8 @@ function goNext(){
         startReviewRound();
       }
     }
-    return;
-  }
-
-  if(qIndex<activeQuestions().length-1){
-    qIndex++;
-    renderQuestion();
-  }else{
-    if(correctSet.size===activeQuestions().length){
-      showPass();
-    }else{
-      startReviewRound();
-    }
+  }finally{
+    questionTransitionPending=false;
   }
 }
 
