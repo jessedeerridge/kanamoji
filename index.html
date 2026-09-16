@@ -2409,14 +2409,35 @@ async function sync(){
   }
   const merged=mergeProgress(local,remote,name);
   const now=Date.now();
+  const pendingAttempts=Array.isArray(local.pendingAttempts)?local.pendingAttempts:[];
+  const studentPatch={
+    [`students/${key}/studentKey`]:key,
+    [`students/${key}/name`]:name,
+    [`students/${key}/lastSeenAt`]:now
+  };
   try{
-    await api.update(api.ref(api.db),{
-      [`students/${key}/studentKey`]:key,
-      [`students/${key}/name`]:name,
-      [`students/${key}/lastSeenAt`]:now,
-      [`students/${key}/kanaProgress`]:merged,
-      [`kanaProgress/${key}`]:merged
-    });
+    // 既存の小テストが利用している許可済みパスへ、達成履歴を先に保存する。
+    // kanaProgress の権限が未設定でも、この書き込みは巻き戻されない。
+    try{await api.update(api.ref(api.db),studentPatch)}catch(error){console.warn("Student metadata write failed.",error)}
+    for(const attempt of pendingAttempts){
+      const results=await Promise.allSettled([
+        api.update(api.ref(api.db),{[`quizResults/${key}/${attempt.id}`]:attempt}),
+        api.update(api.ref(api.db),{[`students/${key}/quizResults/${attempt.id}`]:attempt})
+      ]);
+      if(results.every(result=>result.status==="rejected")){
+        throw results[0].reason;
+      }
+    }
+    // 集計データは別更新にして、権限設定の差で達成履歴まで失わないようにする。
+    try{
+      await api.update(api.ref(api.db),{
+        [`students/${key}/kanaProgress`]:merged,
+        [`kanaProgress/${key}`]:merged
+      });
+    }catch(error){
+      console.warn("Kana aggregate write failed; test history was saved.",error);
+    }
+    merged.pendingAttempts=[];
     writeLocal(merged);
     renderStamps(merged);
     window.dispatchEvent(new CustomEvent("kana-practice-progress"));
@@ -2428,7 +2449,7 @@ async function sync(){
     console.error("Kana progress write failed.",error);
   }
 }
-window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);return sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);window.dispatchEvent(new CustomEvent("kana-practice-progress"));return sync()}};renderStamps();
+window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);merged.pendingAttempts=anonymous.pendingAttempts||[];writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{},now=Date.now(),name=localStorage.getItem("kanamoji_student_name")||data.name||"",id=`kana_${now}_${Math.random().toString(36).slice(2,9)}`;data.name=name;data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:now};data.pendingAttempts=data.pendingAttempts||[];data.pendingAttempts.push({id,name,mode:"かなテスト",conjugation:key,script:document.body.dataset.kanaMode||"hiragana",stage,percent:pct,reason:"complete",achievedAt:now});writeLocal(data);renderStamps(data);return sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);window.dispatchEvent(new CustomEvent("kana-practice-progress"));return sync()}};renderStamps();
 Promise.all([
   import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
   import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")
@@ -3074,6 +3095,7 @@ const STAGE_AUDIO_CHARS = {
 };
 
 const kanaAudioCache = new Map();
+const kanaPlaybackPools = new Map();
 let activeKanaAudio = null;
 
 function audioKanaToHira(ch){
@@ -3094,9 +3116,18 @@ function getCachedAudio(stem){
 }
 
 function createPlaybackAudio(stem){
-  const cached=getCachedAudio(stem);
-  const audio=cached.cloneNode(true);
-  audio.preload="auto";
+  let pool=kanaPlaybackPools.get(stem);
+  if(!pool){
+    const cached=getCachedAudio(stem);
+    const alternate=cached.cloneNode(true);
+    alternate.preload="auto";
+    try{alternate.load()}catch(_){}
+    // 先読み済み要素を1つ目に使い、同音連続時だけ2つ目へ交互に切り替える。
+    pool={index:0,audios:[cached,alternate]};
+    kanaPlaybackPools.set(stem,pool);
+  }
+  const audio=pool.audios[pool.index++%pool.audios.length];
+  try{audio.pause();audio.currentTime=0}catch(_){}
   return audio;
 }
 
@@ -3215,19 +3246,11 @@ function playStemToEnd(stem,run){
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
     let finished=false;
-    const finish=ok=>{if(finished)return;finished=true;clearTimeout(timer);a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("timeupdate",nearEnd);resolve(ok)};
+    const finish=ok=>{if(finished)return;finished=true;clearTimeout(timer);a.removeEventListener("ended",ended);a.removeEventListener("error",failed);resolve(ok)};
     const ended=()=>finish(true),failed=()=>finish(false);
-    // 音声末尾の無音を待たず、次の文字をすぐ発音する。
-    const nearEnd=()=>{
-      if(Number.isFinite(a.duration) && a.duration>.18 && a.duration-a.currentTime<=.1){
-        a.pause();
-        finish(true);
-      }
-    };
     const timer=setTimeout(()=>finish(false),4000);
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
-    a.addEventListener("timeupdate",nearEnd);
     const played=a.play();
     if(played&&typeof played.catch==="function")played.catch(failed);
     if(run!==wordAudioRun)finish(false);
@@ -4237,7 +4260,7 @@ function showPass(){
            style="height:${keepHeight}px;min-height:${keepHeight}px">
         <div class="complete-content">
           <div class="complete-title">${titleText}</div>
-          ${completedTest ? "" : '<button class="next-btn practice-test-btn" id="completeStageTestBtn" type="button">このステージをテスト</button>'}
+          ${completedTest ? "" : '<button class="next-btn practice-test-btn" id="completeStageTestBtn" type="button">测试这一行</button>'}
         </div>
       </div>
     `;
