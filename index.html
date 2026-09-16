@@ -2423,8 +2423,8 @@ async function sync(){
     state.textContent="--✧--";
     state.title="DB保存済み";
   }catch(error){
-    state.textContent="DB×";
-    state.title=`DB保存失敗: ${error?.message||error}`;
+    state.textContent="--/--";
+    state.title="非接続";
     console.error("Kana progress write failed.",error);
   }
 }
@@ -2436,11 +2436,13 @@ Promise.all([
   const db=getDatabase(initializeApp(config));
   api={db,ref,get,update};
   onValue(ref(db,".info/connected"),snap=>{
-    state.textContent=snap.val()===true?"--✧--":"--/--";
-    if(snap.val()===true)sync();
+    const connected=snap.val()===true;
+    state.textContent=connected?"--✧--":"--/--";
+    state.title=connected?"接続中":"非接続";
+    if(connected)sync();
   });
   sync();
-}).catch(()=>{state.textContent="--/--"});
+}).catch(()=>{state.textContent="--/--";state.title="非接続"});
 </script>
 <script>
 const ROWS = {
