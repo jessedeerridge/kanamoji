@@ -327,7 +327,7 @@ button,.title-practice-badge{
 .kana-row{
   display:grid;
   grid-template-columns:repeat(5,58px);
-  gap:14px;
+  gap:24px;
   justify-content:center;
   width:100%;
 }
@@ -2038,6 +2038,25 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 .password-actions .password-ok{background:#fff3b8}
 .password-actions button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
 
+
+/* ===== トップ画面の文字色を統一 ===== */
+.title-screen,
+.title-screen h1,
+.title-screen button,
+.title-screen span,
+.title-screen .title-practice-badge,
+.title-screen .title-switch-label{
+  color:var(--ink) !important;
+  -webkit-text-fill-color:var(--ink);
+}
+
+/* ===== 最初の5文字選択：中央配置＋広い間隔 ===== */
+.kana-match-pieces,
+.kana-match-piece-row{
+  justify-content:center !important;
+  gap:24px !important;
+}
+
 </style>
 </head>
 <body>
@@ -2725,6 +2744,19 @@ let emojiEl=document.getElementById("emoji");
    01_あ.mp3 ～ 46_ん.mp3
    HTMLと同じフォルダ、または ./audio/ に置けば使えます。ブラウザTTSは使用しません。
 */
+
+
+/* ===== 拗音専用 MP3 =====
+   1_きゃ.mp3 ～ 21_りょ.mp3
+*/
+
+
+
+
+/* ===== 一文字MP3方式 =====
+   選んだ行の音声だけ先に読み込み、完了してから問題を開始する。
+   単語音声は使用しない。
+*/
 const KANA_AUDIO_FILES = {
   "あ":"01_あ","い":"02_い","う":"03_う","え":"04_え","お":"05_お",
   "か":"06_か","き":"07_き","く":"08_く","け":"09_け","こ":"10_こ",
@@ -2738,147 +2770,118 @@ const KANA_AUDIO_FILES = {
   "わ":"44_わ","を":"45_を","ん":"46_ん"
 };
 
-/* ===== 拗音専用 MP3 =====
-   1_きゃ.mp3 ～ 21_りょ.mp3
-*/
 const YOON_AUDIO_FILES = {
-  "きゃ":"1_きゃ",
-  "きゅ":"2_きゅ",
-  "きょ":"3_きょ",
-  "しゃ":"4_しゃ",
-  "しゅ":"5_しゅ",
-  "しょ":"6_しょ",
-  "ちゃ":"7_ちゃ",
-  "ちゅ":"8_ちゅ",
-  "ちょ":"9_ちょ",
-  "にゃ":"10_にゃ",
-  "にゅ":"11_にゅ",
-  "にょ":"12_にょ",
-  "ひゃ":"13_ひゃ",
-  "ひゅ":"14_ひゅ",
-  "ひょ":"15_ひょ",
-  "みゃ":"16_みゃ",
-  "みゅ":"17_みゅ",
-  "みょ":"18_みょ",
-  "りゃ":"19_りゃ",
-  "りゅ":"20_りゅ",
-  "りょ":"21_りょ"
+  "きゃ":"01_きゃ","きゅ":"02_きゅ","きょ":"03_きょ",
+  "しゃ":"04_しゃ","しゅ":"05_しゅ","しょ":"06_しょ",
+  "ちゃ":"07_ちゃ","ちゅ":"08_ちゅ","ちょ":"09_ちょ",
+  "にゃ":"10_にゃ","にゅ":"11_にゅ","にょ":"12_にょ",
+  "ひゃ":"13_ひゃ","ひゅ":"14_ひゅ","ひょ":"15_ひょ",
+  "みゃ":"16_みゃ","みゅ":"17_みゅ","みょ":"18_みょ",
+  "りゃ":"19_りゃ","りゅ":"20_りゅ","りょ":"21_りょ"
 };
 
+const STAGE_AUDIO_CHARS = {
+  a:["あ","い","う","え","お"],
+  k:["か","き","く","け","こ"],
+  s:["さ","し","す","せ","そ"],
+  t:["た","ち","つ","て","と"],
+  n:["な","に","ぬ","ね","の"],
+  h:["は","ひ","ふ","へ","ほ"],
+  m:["ま","み","む","め","も"],
+  y:["や","ゆ","よ"],
+  r:["ら","り","る","れ","ろ"],
+  w:["わ","を","ん"]
+};
 
-/* ===== 音声スプライト方式 =====
-   67個の文字MP3を1個の kana-audio.mp3 にまとめて一度だけ取得。
-   Web Audio APIで一度デコードし、その後は通信なしで指定区間だけ即再生する。
-*/
-const KANA_SPRITE_MAP = {"あ":[0.0,0.575986],"い":[0.575986,0.815986],"う":[1.391972,0.84],"え":[2.231972,0.815986],"お":[3.047958,0.864014],"か":[3.911972,0.864014],"き":[4.775986,0.935986],"く":[5.711972,0.888005],"け":[6.599977,0.695986],"こ":[7.295963,0.912018],"さ":[8.207981,0.912018],"し":[9.119999,1.032018],"す":[10.152017,0.504014],"せ":[10.656031,0.912018],"そ":[11.568049,0.935986],"た":[12.504035,0.864014],"ち":[13.368049,0.935986],"つ":[14.304035,0.935986],"て":[15.240021,0.912018],"と":[16.152039,0.912018],"な":[17.064057,0.888005],"に":[17.952062,0.888005],"ぬ":[18.840067,0.912018],"ね":[19.752085,0.912018],"の":[20.664103,0.935986],"は":[21.600089,0.84],"ひ":[22.440089,1.295986],"ふ":[23.736075,1.295986],"へ":[25.032061,1.368005],"ほ":[26.400066,0.815986],"ま":[27.216052,0.84],"み":[28.056052,0.912018],"む":[28.96807,0.912018],"め":[29.880088,0.912018],"も":[30.792106,0.912018],"や":[31.704124,0.888005],"ゆ":[32.592129,0.935986],"よ":[33.528115,0.935986],"ら":[34.464101,0.455986],"り":[34.920087,0.48],"る":[35.400087,0.48],"れ":[35.880087,0.455986],"ろ":[36.336073,0.408005],"わ":[36.744078,0.912018],"を":[37.656096,0.815986],"ん":[38.472082,0.6],"きゃ":[39.072082,0.432018],"きゅ":[39.5041,0.6],"きょ":[40.1041,0.552018],"しゃ":[40.656118,0.6],"しゅ":[41.256118,0.648005],"しょ":[41.904123,0.648005],"ちゃ":[42.552128,0.575986],"ちゅ":[43.128114,0.624014],"ちょ":[43.752128,0.552018],"にゃ":[44.304146,0.552018],"にゅ":[44.856164,0.6],"にょ":[45.456164,0.672018],"ひゃ":[46.128182,0.575986],"ひゅ":[46.704168,0.6],"ひょ":[47.304168,0.552018],"みゃ":[47.856186,0.552018],"みゅ":[48.408204,0.575986],"みょ":[48.98419,0.552018],"りゃ":[49.536208,0.552018],"りゅ":[50.088226,0.575986],"りょ":[50.664212,0.455986]};
-
-let kanaAudioContext=null;
-let kanaSpriteBuffer=null;
-let kanaSpriteLoading=null;
-let activeKanaSource=null;
-
-function ensureKanaAudioContext(){
-  if(!kanaAudioContext){
-    const AC=window.AudioContext||window.webkitAudioContext;
-    if(!AC) return null;
-    kanaAudioContext=new AC();
-  }
-  if(kanaAudioContext.state==="suspended"){
-    kanaAudioContext.resume().catch(()=>{});
-  }
-  return kanaAudioContext;
-}
-
-function loadKanaSprite(){
-  if(kanaSpriteBuffer) return Promise.resolve(kanaSpriteBuffer);
-  if(kanaSpriteLoading) return kanaSpriteLoading;
-
-  const ctx=ensureKanaAudioContext();
-  if(!ctx) return Promise.reject(new Error("Web Audio API unavailable"));
-
-  kanaSpriteLoading=fetch("./kana-audio.mp3",{cache:"force-cache"})
-    .then(r=>{
-      if(!r.ok) throw new Error("kana-audio.mp3: "+r.status);
-      return r.arrayBuffer();
-    })
-    .then(buf=>ctx.decodeAudioData(buf))
-    .then(decoded=>{
-      kanaSpriteBuffer=decoded;
-      return decoded;
-    })
-    .catch(err=>{
-      kanaSpriteLoading=null;
-      console.error(err);
-      throw err;
-    });
-
-  return kanaSpriteLoading;
-}
-
-function stopKanaAudio(){
-  if(activeKanaSource){
-    try{activeKanaSource.stop();}catch(_){}
-    try{activeKanaSource.disconnect();}catch(_){}
-    activeKanaSource=null;
-  }
-}
-
-async function playSpriteKana(key){
-  const range=KANA_SPRITE_MAP[key];
-  if(!range) return false;
-
-  const ctx=ensureKanaAudioContext();
-  if(!ctx) return false;
-
-  let buffer;
-  try{ buffer=await loadKanaSprite(); }
-  catch(_){ return false; }
-
-  stopKanaAudio();
-
-  const source=ctx.createBufferSource();
-  source.buffer=buffer;
-  source.connect(ctx.destination);
-  activeKanaSource=source;
-  source.onended=()=>{
-    if(activeKanaSource===source) activeKanaSource=null;
-    try{source.disconnect();}catch(_){}
-  };
-  source.start(0,range[0],range[1]);
-  return true;
-}
+const kanaAudioCache = new Map();
+let activeKanaAudio = null;
 
 function audioKanaToHira(ch){
   if(!ch) return "";
   const code=ch.charCodeAt(0);
   let hira=(code>=0x30A1 && code<=0x30F6)
-    ? String.fromCharCode(code-0x60)
-    : ch;
+    ? String.fromCharCode(code-0x60) : ch;
   const smallMap={"ぁ":"あ","ぃ":"い","ぅ":"う","ぇ":"え","ぉ":"お","ゃ":"や","ゅ":"ゆ","ょ":"よ","ゎ":"わ"};
   return smallMap[hira]||hira;
 }
 
+function getCachedAudio(stem){
+  if(kanaAudioCache.has(stem)) return kanaAudioCache.get(stem);
+  const a=new Audio(`./audio/${stem}.mp3`);
+  a.preload="auto";
+  kanaAudioCache.set(stem,a);
+  return a;
+}
+
+function preloadOneStem(stem){
+  return new Promise(resolve=>{
+    const a=getCachedAudio(stem);
+    if(a.readyState>=3){ resolve(true); return; }
+
+    let done=false;
+    const finish=(ok)=>{
+      if(done) return;
+      done=true;
+      clearTimeout(timer);
+      a.removeEventListener("canplaythrough",onReady);
+      a.removeEventListener("canplay",onReady);
+      a.removeEventListener("error",onError);
+      resolve(ok);
+    };
+    const onReady=()=>finish(true);
+    const onError=()=>finish(false);
+    const timer=setTimeout(()=>finish(a.readyState>=2),8000);
+
+    a.addEventListener("canplaythrough",onReady,{once:true});
+    a.addEventListener("canplay",onReady,{once:true});
+    a.addEventListener("error",onError,{once:true});
+    try{ a.load(); }catch(_){ finish(false); }
+  });
+}
+
+async function preloadStageAudio(key){
+  let stems=[];
+  if(key==="yoon"){
+    stems=Object.values(YOON_AUDIO_FILES);
+  }else if(key==="all"){
+    stems=Object.values(KANA_AUDIO_FILES);
+  }else{
+    stems=(STAGE_AUDIO_CHARS[key]||[]).map(ch=>KANA_AUDIO_FILES[ch]).filter(Boolean);
+  }
+  await Promise.all(stems.map(preloadOneStem));
+}
+
+function stopKanaAudio(){
+  if(activeKanaAudio){
+    try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
+    activeKanaAudio=null;
+  }
+}
+
+function playStem(stem){
+  if(!stem) return Promise.resolve(false);
+  stopKanaAudio();
+  const a=getCachedAudio(stem);
+  activeKanaAudio=a;
+  try{ a.currentTime=0; }catch(_){}
+  const p=a.play();
+  if(p && typeof p.then==="function"){
+    return p.then(()=>true).catch(()=>false);
+  }
+  return Promise.resolve(true);
+}
+
 function playKanaAudio(kana){
-  return playSpriteKana(audioKanaToHira(kana));
+  return playStem(KANA_AUDIO_FILES[audioKanaToHira(kana)]);
 }
-
 function playYoonPieceAudio(pieceText){
-  return playSpriteKana(pieceText);
+  return playStem(YOON_AUDIO_FILES[pieceText]);
 }
-
-/* 単語音声は使わない。 */
-function playWordAudio(word){
+function playWordAudio(){
   return Promise.resolve(false);
 }
-
 function waitAudio(ms){
   return new Promise(resolve=>setTimeout(resolve,ms));
-}
-
-/* 最初のユーザー操作時に1ファイルだけ読み込み開始。
-   行ごとの5リクエストは発生しない。 */
-function warmStageKanaAudio(){
-  loadKanaSprite().catch(()=>{});
 }
 
 const ROMAJI = {
@@ -4894,10 +4897,13 @@ function bindTap(el,handler){
 const titleScreen=document.getElementById("titleScreen");
 const gameScreen=document.getElementById("gameScreen");
 
-function startStage(key){
-  warmStageKanaAudio();
+async function startStage(key){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
+
+  // 選択した範囲の文字音声を全部読み込み終えてから問題画面を開始
+  await preloadStageAudio(key);
+
   const modeBtn=document.getElementById("titleModeButton");
   const isTest = modeBtn && modeBtn.textContent.trim()==="テスト";
 
@@ -4980,7 +4986,7 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
       const unlocked=await requestAppPassword("此内容需要密码。");
       if(!unlocked)return;
     }
-    startStage(stage);
+    await startStage(stage);
   });
 });
 
