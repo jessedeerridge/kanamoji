@@ -3204,9 +3204,11 @@ function audioCharsNeededForStage(key){
   const idx=order.indexOf(key);
   if(idx<0) return [];
 
-  // 後半の単語・復習で使うため、現在の行＋それ以前の行を全部準備する。
-  const needed=[];
-  for(let i=0;i<=idx;i++){
+  // まず現在の行を読み込む。以前の実装は「あ行」から順番に待たせたため、
+  // ら行等では実際に今必要な音が数十ファイルの後ろに並んでいた。
+  const needed=[...(STAGE_AUDIO_CHARS[key]||[])];
+  // 後半の単語・復習用は、現在の行のロードを妨げない後順位にする。
+  for(let i=idx-1;i>=0;i--){
     needed.push(...(STAGE_AUDIO_CHARS[order[i]]||[]));
   }
   return [...new Set(needed)];
@@ -3245,11 +3247,8 @@ function playStem(stem){
     const finish=ok=>{
       if(finished)return;
       finished=true;
-      clearTimeout(watchdog);
       a.removeEventListener("ended",ended);
       a.removeEventListener("error",failed);
-      a.removeEventListener("canplay",start);
-      a.removeEventListener("loadeddata",start);
       if(activeKanaAudio===a){activeKanaAudio=null;activeKanaFinish=null}
       resolve(ok);
     };
@@ -3257,12 +3256,6 @@ function playStem(stem){
     activeKanaFinish=finish;
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
-    // 壊れたレスポンスや切断で ended/error のどちらも来ないブラウザがある。
-    // 呼び出し側を永久に止めず、次の音を再生できる状態へ必ず戻す。
-    const watchdog=setTimeout(()=>{
-      try{a.pause()}catch(_){}
-      finish(false);
-    },8000);
     let attempts=0;
     let starting=false;
     const start=()=>{
@@ -3275,23 +3268,22 @@ function playStem(stem){
         played.catch(()=>{
           starting=false;
           if(attempts<3){
-            // load() は取得済みバイトまで捨てる実装があるため呼ばない。
-            setTimeout(start,160*attempts);
+            try{a.load()}catch(_){}
+            setTimeout(start,80);
           }else failed();
         });
       }else if(!played&&a.paused){
         starting=false;
         if(attempts<3){
-          setTimeout(start,160*attempts);
+          try{a.load()}catch(_){}
+          setTimeout(start,80);
         }else failed();
       }
     };
     if(a.readyState<2){
       a.addEventListener("canplay",start,{once:true});
-      a.addEventListener("loadeddata",start,{once:true});
       try{a.load()}catch(_){}
-      // canplay が通知されないWebViewもあるので、play()自身にも読み込みを任せる。
-      start();
+      setTimeout(start,180);
     }else start();
   });
 }
