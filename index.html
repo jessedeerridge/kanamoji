@@ -2394,7 +2394,40 @@ const safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("
 const progressStageKey=stage=>`${document.body.dataset.kanaMode||"hiragana"}:${stage}`;
 function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const progress=data.stages?.[`${script}:${btn.dataset.stage}`]||{},achieved=Number(progress.bestPct)>=100,count=achieved?Math.min(3,Math.max(1,Number(progress.count)||0)):0;btn.querySelector(".stage-stamps")?.remove();if(!count)return;const stamps=document.createElement("span");stamps.className="stage-stamps";stamps.setAttribute("aria-label",`達成 ${count}回`);for(let i=0;i<count;i++){const img=document.createElement("img");img.src="./stamp.png";img.alt="";img.className="stage-stamp";stamps.appendChild(img)}btn.appendChild(stamps)})}
 function mergeProgress(local,remote,name){const merged={name,stages:{},practiceStages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}for(const stage of new Set([...Object.keys(remote.practiceStages||{}),...Object.keys(local.practiceStages||{})])){const l=local.practiceStages?.[stage]||{},r=remote.practiceStages?.[stage]||{};merged.practiceStages[stage]={cleared:Boolean(l.cleared||r.cleared),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
-async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged=mergeProgress(local,remote,name);writeLocal(merged);renderStamps(merged);window.dispatchEvent(new CustomEvent("kana-practice-progress"));await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
+async function sync(){
+  const name=localStorage.getItem("kanamoji_student_name")||"";
+  if(!name||!api)return;
+  const key=`name_${safeKey(name)}`;
+  const local=readLocal();
+  let remote={};
+  // 読み取り権限がない場合でも、書き込みまで中断しない。
+  try{
+    const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`));
+    remote=snap.exists()?snap.val():{};
+  }catch(error){
+    console.warn("Kana progress read failed; continuing with local data.",error);
+  }
+  const merged=mergeProgress(local,remote,name);
+  const now=Date.now();
+  try{
+    await api.update(api.ref(api.db),{
+      [`students/${key}/studentKey`]:key,
+      [`students/${key}/name`]:name,
+      [`students/${key}/lastSeenAt`]:now,
+      [`students/${key}/kanaProgress`]:merged,
+      [`kanaProgress/${key}`]:merged
+    });
+    writeLocal(merged);
+    renderStamps(merged);
+    window.dispatchEvent(new CustomEvent("kana-practice-progress"));
+    state.textContent="--✧--";
+    state.title="DB保存済み";
+  }catch(error){
+    state.textContent="DB×";
+    state.title=`DB保存失敗: ${error?.message||error}`;
+    console.error("Kana progress write failed.",error);
+  }
+}
 window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);return sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);window.dispatchEvent(new CustomEvent("kana-practice-progress"));return sync()}};renderStamps();
 Promise.all([
   import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
@@ -3166,6 +3199,10 @@ function playYoonPieceAudio(pieceText){
   return playStem(YOON_AUDIO_FILES[pieceText]);
 }
 let wordAudioRun=0;
+function cancelWordAudio(){
+  wordAudioRun++;
+  stopKanaAudio();
+}
 function playStemToEnd(stem,run){
   if(!stem) return Promise.resolve(false);
   stopKanaAudio();
@@ -3196,8 +3233,6 @@ function playStemToEnd(stem,run){
 }
 async function playWordAudio(word){
   const run=++wordAudioRun;
-  const wasSolved=viewingSolvedQuestion;
-  if(!wasSolved)locked=true;
   const normalized=normalizeKanaString(word);
   const units=[];
   for(let i=0;i<normalized.length;i++){
@@ -3210,7 +3245,6 @@ async function playWordAudio(word){
     await playStemToEnd(stem,run);
     if(i<units.length-1)await waitAudio(0);
   }
-  if(run===wordAudioRun&&!wasSolved)locked=false;
 }
 function waitAudio(ms){
   return new Promise(resolve=>setTimeout(resolve,ms));
@@ -3359,6 +3393,11 @@ function updateQuestionProgress(total=activeQuestions().length){
   qTotalEl.textContent=safeTotal;
 }
 
+function setQuestionProgressVisible(visible){
+  const counter=document.querySelector(".progress-count");
+  if(counter)counter.hidden=!visible;
+}
+
 function shouldPrefillKatakanaChar(ch){
   if(kanaScriptMode!=="katakana" || !isPracticeMode()) return false;
   if(!ROWS[stageKey]) return false;
@@ -3462,6 +3501,7 @@ function startYoonWordPhase(){
 function renderQuestion(){
   locked=false;
   selectedTile=null;
+  setQuestionProgressVisible(true);
 
   // 拗音：最初の7問は「音を聞いて3択」
   if(stageKey==="yoon" && yoonPhase==="listen"){
@@ -3738,6 +3778,7 @@ function renderYoonListeningQuestion(){
   if(!q) return;
 
   stageNameEl.textContent="拗音練習";
+  setQuestionProgressVisible(true);
   updateQuestionProgress();
 
   zhEl.textContent="";
@@ -3876,7 +3917,7 @@ function renderYoonBoard(){
 
       // 拗音モードでは、問題読み上げが残っていてもここで止める。
       // その後、選んだ拗音だけを再生するので次へ進むのが遅れない。
-      stopKanaAudio();
+      cancelWordAudio();
       playYoonPieceAudio(pieceText);
 
       const slot=document.querySelector(".slot.yoon-slot");
@@ -3893,6 +3934,7 @@ function renderYoonBoard(){
       onTap:putYoon,
       onDrop:slot=>{
         if(locked || viewingSolvedQuestion) return;
+        cancelWordAudio();
         playDroppedKana(pieceText);
         setSlotKana(slot,pieceText);
         checkAnswer();
@@ -3920,6 +3962,7 @@ function renderBoard(){
       if(viewingSolvedQuestion || locked) return;
 
       // カードをクリック／タップしたら、その文字を発音
+      cancelWordAudio();
       playKanaAudio(displayKana(k));
       const empty=[...document.querySelectorAll(".slot")].find(s=>!s.dataset.kanaValue);
       if(!empty) return;
@@ -3934,6 +3977,7 @@ function renderBoard(){
       onTap:placeKanaByTap,
       onDrop:slot=>{
         if(locked || viewingSolvedQuestion || slot.dataset.prefilled==="1" || slot.dataset.solved==="1") return;
+        cancelWordAudio();
         playDroppedKana(k); // ドラッグした文字を必ず読む
         setSlotKana(slot,k);
         checkAnswer();
@@ -4356,6 +4400,7 @@ function startQuizAfterMatch(){
 
 function renderKatakanaAllStep(){
   setMatchNavigationHidden(true);
+  setQuestionProgressVisible(false);
 
   const playArea=document.getElementById("playArea");
   const key=KATAKANA_ALL_ORDER[katakanaAllStageIndex];
@@ -4499,6 +4544,7 @@ function renderKatakanaAllStep(){
 
 function renderHiraganaAllStep(){
   setMatchNavigationHidden(true);
+  setQuestionProgressVisible(false);
 
   const playArea=document.getElementById("playArea");
   const key=HIRAGANA_ALL_ORDER[hiraganaAllStageIndex];
@@ -4643,6 +4689,7 @@ function renderHiraganaAllStep(){
 
 function renderHiraganaMatch(){
   setMatchNavigationHidden(true);
+  setQuestionProgressVisible(false);
 
   const playArea=document.getElementById("playArea");
   const layout=matchRowForStage(stageKey);
@@ -4870,6 +4917,7 @@ function renderHiraganaMatch(){
 
 function renderKatakanaMatch(){
   setMatchNavigationHidden(true);
+  setQuestionProgressVisible(false);
 
   const playArea=document.getElementById("playArea");
   const layout=matchRowForStage(stageKey);
