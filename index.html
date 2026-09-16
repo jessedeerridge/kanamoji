@@ -2146,6 +2146,74 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   box-sizing:border-box !important;
 }
 
+
+/* 音読さん：枠の外に確実に表示 */
+.audio-credit{
+  position:static !important;
+  display:block !important;
+  width:100% !important;
+  margin:14px 0 0 !important;
+  padding:0 !important;
+  text-align:right !important;
+  font-weight:400 !important;
+  font-size:12px !important;
+  line-height:1.4 !important;
+  opacity:.72 !important;
+  visibility:visible !important;
+  overflow:visible !important;
+}
+
+
+/* パスワードポップ：さらに小さく */
+.password-box,
+.password-modal-box,
+.pw-box{
+  width:190px !important;
+  max-width:calc(100vw - 32px) !important;
+  padding:10px 12px 9px !important;
+  border-radius:10px !important;
+}
+.password-box input,
+.password-modal-box input,
+.pw-box input{
+  width:100% !important;
+  height:30px !important;
+  min-height:30px !important;
+  padding:3px 7px !important;
+  font-size:14px !important;
+  border-radius:6px !important;
+  box-sizing:border-box !important;
+}
+.password-box button,
+.password-modal-box button,
+.pw-box button{
+  min-height:28px !important;
+  padding:4px 10px !important;
+  font-size:13px !important;
+}
+
+
+/* OK！表示で欄のサイズ・位置を変えない */
+.kana-match-main{
+  position:relative !important;
+}
+.kana-match-ok,
+.kana-match-result,
+.match-ok{
+  position:absolute !important;
+  left:50% !important;
+  top:50% !important;
+  transform:translate(-50%,-50%) !important;
+  margin:0 !important;
+  padding:4px 10px !important;
+  width:auto !important;
+  height:auto !important;
+  min-width:0 !important;
+  min-height:0 !important;
+  z-index:20 !important;
+  pointer-events:none !important;
+}
+
 </style>
 </head>
 <body>
