@@ -5,13 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ひらがなゲーム</title>
 <style>
+
+/* Klee One：1ファイルだけ並行読み込み。初期表示は止めない */
+@font-face{
+  font-family:"Klee One";
+  src:url("./fonts/KleeOne-Regular.ttf") format("truetype");
+  font-weight:400 900;
+  font-style:normal;
+  font-display:swap;
+}
+
 :root{
   --bg:#f4f0e5;
   --panel:#fffdf8;
   --ink:#202020;
   --shadow:#c8c0ad;
   --yellow:#ffe38a;
-  --jp-font:"Yu Kyokasho","YuKyokasho","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
+  --jp-font:"Klee One","Yu Kyokasho","YuKyokasho","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
   --ui-font:system-ui,-apple-system,"Noto Sans JP","Microsoft YaHei",sans-serif;
   --zh-font:system-ui,-apple-system,"Noto Sans SC","Microsoft YaHei",sans-serif;
 }
@@ -5152,42 +5162,7 @@ function requestAppPassword(message){
 </script>
 
 
-<script>
-(() => {
-  const loadKleeOne = async () => {
-    if (!("FontFace" in window) || !document.fonts) return;
-    try {
-      const klee = new FontFace(
-        "Klee One Lazy",
-        'url("./fonts/KleeOne-Regular.ttf") format("truetype")',
-        { style: "normal", weight: "400", display: "swap" }
-      );
-      const loaded = await klee.load();
-      document.fonts.add(loaded);
-      document.documentElement.style.setProperty(
-        "--jp-font",
-        '"Klee One Lazy","Yu Kyokasho","YuKyokasho","Hiragino Kaku Gothic ProN","Meiryo",sans-serif'
-      );
-    } catch (_) {
-      // If Klee One cannot be loaded, keep using the already-visible system font.
-    }
-  };
 
-  const startLazyFontLoad = () => {
-    if ("requestIdleCallback" in window) {
-      requestIdleCallback(() => loadKleeOne(), { timeout: 1200 });
-    } else {
-      setTimeout(loadKleeOne, 350);
-    }
-  };
-
-  if (document.readyState === "complete") {
-    startLazyFontLoad();
-  } else {
-    window.addEventListener("load", startLazyFontLoad, { once: true });
-  }
-})();
-</script>
 
 </body>
 </html>
