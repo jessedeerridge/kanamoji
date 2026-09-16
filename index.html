@@ -1,19 +1,21 @@
 <!doctype html>
 <html lang="ja">
 <head>
+<link rel="preload" href="./fonts/KleeOne-Rensyuu.woff2" as="font" type="font/woff2" crossorigin>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ひらがなゲーム</title>
 <style>
 
-/* Klee One：1ファイルだけ並行読み込み。初期表示は止めない */
+/* このサイトで使う文字だけに軽量化した Klee One */
 @font-face{
-  font-family:"Klee One";
-  src:url("./fonts/KleeOne-Regular.ttf") format("truetype");
-  font-weight:400 900;
+  font-family:"Klee One Rensyuu";
+  src:url("./fonts/KleeOne-Rensyuu.woff2") format("woff2");
   font-style:normal;
+  font-weight:400 900;
   font-display:swap;
 }
+
 
 :root{
   --bg:#f4f0e5;
@@ -21,7 +23,7 @@
   --ink:#202020;
   --shadow:#c8c0ad;
   --yellow:#ffe38a;
-  --jp-font:"Klee One","Yu Kyokasho","YuKyokasho","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
+  --jp-font:"Klee One Rensyuu","Yu Kyokasho","YuKyokasho","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
   --ui-font:system-ui,-apple-system,"Noto Sans JP","Microsoft YaHei",sans-serif;
   --zh-font:system-ui,-apple-system,"Noto Sans SC","Microsoft YaHei",sans-serif;
 }
@@ -2063,6 +2065,57 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 .kana-row > *{
   margin-left:22px !important;
   margin-right:22px !important;
+}
+
+
+/* 最初の5文字選択：5個のピース同士の間隔 */
+.kana-match-bank{
+  column-gap:24px !important;
+  row-gap:24px !important;
+  justify-content:center !important;
+}
+@media (max-width:520px){
+  .kana-match-bank{
+    column-gap:16px !important;
+  }
+}
+
+
+/* 最初の5文字選択：上の枠と下のピースを同じ間隔で配置 */
+.kana-match-slots,
+.kana-match-bank{
+  column-gap:24px !important;
+  row-gap:24px !important;
+  justify-content:center !important;
+}
+
+@media (max-width:520px){
+  .kana-match-slots,
+  .kana-match-bank{
+    column-gap:16px !important;
+  }
+}
+
+
+/* 最初の5文字選択：上の5枠＋下の5ピースを実際の親要素で同じ間隔にする */
+.kana-match-grid,
+.kana-match-bank{
+  gap:24px !important;
+  justify-content:center !important;
+}
+
+/* 画面幅に合わせて、5個を保ったまま可能な限り間隔を確保 */
+@media (max-width:760px){
+  .kana-match-grid,
+  .kana-match-bank{ gap:16px !important; }
+}
+@media (max-width:500px){
+  .kana-match-grid,
+  .kana-match-bank{ gap:10px !important; }
+}
+@media (max-width:340px){
+  .kana-match-grid,
+  .kana-match-bank{ gap:7px !important; }
 }
 
 </style>
