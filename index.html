@@ -3096,6 +3096,13 @@ function playStem(stem){
 }
 
 
+
+function playDroppedKana(ch){
+  const stem = KANA_AUDIO_FILES[ch] || YOON_AUDIO_FILES[ch];
+  if(!stem) return Promise.resolve(false);
+  return playKanaQueued(stem);
+}
+
 /* ===== 音声キュー：押した音を途中で消さない ===== */
 let kanaAudioPlayQueue = Promise.resolve();
 
@@ -3816,8 +3823,7 @@ function renderYoonBoard(){
       onTap:putYoon,
       onDrop:slot=>{
         if(locked || viewingSolvedQuestion) return;
-        stopKanaAudio();
-        playYoonPieceAudio(pieceText);
+        playDroppedKana(pieceText);
         setSlotKana(slot,pieceText);
         checkAnswer();
       }
@@ -3860,6 +3866,7 @@ function renderBoard(){
       onTap:placeKanaByTap,
       onDrop:slot=>{
         if(locked || viewingSolvedQuestion || slot.dataset.prefilled==="1" || slot.dataset.solved==="1") return;
+        playDroppedKana(k); // ドラッグした文字を必ず読む
         setSlotKana(slot,k);
         checkAnswer();
       }
@@ -5074,6 +5081,7 @@ function setupMatchInput(pieces,slots,finishOne){
       // ドラッグ
       onDrop:slot=>{
         if(slot.dataset.done==="1") return;
+        playDroppedKana(piece.dataset.kana || piece.dataset.char || piece.textContent.trim());
         finishOne(slot,piece);
       }
     });
