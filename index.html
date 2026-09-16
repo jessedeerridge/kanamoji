@@ -2278,6 +2278,8 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 .connection-state{position:fixed;right:10px;top:8px;z-index:130;color:#64748b;font:600 11px/1 system-ui;opacity:.48;letter-spacing:.08em;pointer-events:none}.title-stage-btn{position:relative}.stage-stamps{position:absolute;right:4px;bottom:3px;display:flex;align-items:center;gap:2px;pointer-events:none;z-index:2}.stage-stamp{display:block;width:27px;height:27px;flex:0 0 27px;object-fit:contain;opacity:.9}.name-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;background:rgba(15,23,42,.45);padding:18px}.name-overlay.open{display:grid}.name-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 20px 55px rgba(0,0,0,.25)}.name-panel h2{margin:0 0 8px}.name-panel p{color:#64748b;font-size:14px}.name-panel input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}.name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.name-actions button{padding:10px 16px;border:0;border-radius:10px;font-weight:700}.name-save{background:#2563eb;color:#fff}
+.title-stage-btn:has(.stage-stamps){min-height:88px;padding-bottom:38px!important}
+.stage-stamps{left:50%;right:auto;bottom:5px;transform:translateX(-50%)}
 </style>
 </head>
 <body><div id="connectionState" class="connection-state" aria-live="polite">--/--</div><div class="name-overlay" id="nameOverlay" aria-hidden="true"><form class="name-panel" id="nameForm"><h2>なまえ</h2><p>テストの記録に使う名前を入力してください。</p><input id="studentName" maxlength="40" autocomplete="name" required aria-label="名前"><div class="name-actions"><button type="button" id="nameCancel">キャンセル</button><button class="name-save" type="submit">保存</button></div></form></div>
@@ -3232,31 +3234,43 @@ function playYoonPieceAudio(pieceText){
   return playStem(YOON_AUDIO_FILES[pieceText]);
 }
 let wordAudioRun=0;
+const activeWordAudios=new Map();
+function stopWordAudioElements(){
+  for(const cancel of [...activeWordAudios.values()])cancel();
+  activeWordAudios.clear();
+}
 function cancelWordAudio(){
   wordAudioRun++;
+  stopWordAudioElements();
   stopKanaAudio();
 }
-function playStemToEnd(stem,run){
+function playWordStem(stem,run){
   if(!stem) return Promise.resolve(false);
-  stopKanaAudio();
-  // キャッシュした同じ Audio 要素を使い回すと、同音連続時に ended 状態が
-  // 残るブラウザがあるため、再生専用の要素を毎回作る。
   const a=createPlaybackAudio(stem);
-  activeKanaAudio=a;
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
-    let finished=false;
-    const finish=ok=>{if(finished)return;finished=true;clearTimeout(timer);a.removeEventListener("ended",ended);a.removeEventListener("error",failed);resolve(ok)};
-    const ended=()=>finish(true),failed=()=>finish(false);
-    const timer=setTimeout(()=>finish(false),4000);
+    let advanced=false;
+    const advance=ok=>{if(advanced)return;advanced=true;clearTimeout(timer);a.removeEventListener("timeupdate",nearEnd);resolve(ok)};
+    const cleanup=()=>{a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("timeupdate",nearEnd);activeWordAudios.delete(a)};
+    const cancel=()=>{try{a.pause();a.currentTime=0}catch(_){}cleanup();advance(false)};
+    const ended=()=>{cleanup();advance(true)};
+    const failed=()=>{cleanup();advance(false)};
+    const nearEnd=()=>{
+      if(Number.isFinite(a.duration)&&a.duration>.3&&a.duration-a.currentTime<=.3)advance(true);
+    };
+    const timer=setTimeout(cancel,4000);
+    activeWordAudios.set(a,cancel);
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
+    a.addEventListener("timeupdate",nearEnd);
     const played=a.play();
     if(played&&typeof played.catch==="function")played.catch(failed);
-    if(run!==wordAudioRun)finish(false);
+    if(run!==wordAudioRun)cancel();
   });
 }
 async function playWordAudio(word){
+  stopWordAudioElements();
+  stopKanaAudio();
   const run=++wordAudioRun;
   const normalized=normalizeKanaString(word);
   const units=[];
@@ -3267,8 +3281,7 @@ async function playWordAudio(word){
   for(let i=0;i<units.length;i++){
     if(run!==wordAudioRun)return;
     const stem=YOON_AUDIO_FILES[units[i]]||KANA_AUDIO_FILES[units[i]];
-    await playStemToEnd(stem,run);
-    if(i<units.length-1)await waitAudio(0);
+    await playWordStem(stem,run);
   }
 }
 function waitAudio(ms){
@@ -3424,7 +3437,7 @@ function setQuestionProgressVisible(visible){
 }
 
 function shouldPrefillKatakanaChar(ch){
-  if(kanaScriptMode!=="katakana" || !isPracticeMode()) return false;
+  if(kanaScriptMode!=="katakana") return false;
   if(!ROWS[stageKey]) return false;
 
   const code=ch.charCodeAt(0);
@@ -5401,7 +5414,7 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
 
 bindTap(document.getElementById("titleBtn"),()=>{
   clearYoonAutoPlayTimer();
-  stopKanaAudio();
+  cancelWordAudio();
   gameScreen.classList.remove("active");
   const stageTestBtn=document.getElementById("stageTestBtn");
   if(stageTestBtn)stageTestBtn.hidden=true;
