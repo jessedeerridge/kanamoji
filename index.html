@@ -2271,7 +2271,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   }
 }
 
-.connection-state{position:fixed;right:10px;top:8px;z-index:130;color:#64748b;font:600 11px/1 system-ui;opacity:.48;letter-spacing:.08em;pointer-events:none}.title-stage-btn{position:relative}.stage-stamp{position:absolute;width:42px;height:42px;right:4px;top:50%;margin-top:-21px;object-fit:contain;pointer-events:none;opacity:.9;z-index:2}.name-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;background:rgba(15,23,42,.45);padding:18px}.name-overlay.open{display:grid}.name-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 20px 55px rgba(0,0,0,.25)}.name-panel h2{margin:0 0 8px}.name-panel p{color:#64748b;font-size:14px}.name-panel input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}.name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.name-actions button{padding:10px 16px;border:0;border-radius:10px;font-weight:700}.name-save{background:#2563eb;color:#fff}
+.connection-state{position:fixed;right:10px;top:8px;z-index:130;color:#64748b;font:600 11px/1 system-ui;opacity:.48;letter-spacing:.08em;pointer-events:none}.title-stage-btn{position:relative}.stage-stamps{position:absolute;right:4px;bottom:3px;display:flex;align-items:center;gap:2px;pointer-events:none;z-index:2}.stage-stamp{display:block;width:27px;height:27px;flex:0 0 27px;object-fit:contain;opacity:.9}.name-overlay{position:fixed;inset:0;z-index:120;display:none;place-items:center;background:rgba(15,23,42,.45);padding:18px}.name-overlay.open{display:grid}.name-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 20px 55px rgba(0,0,0,.25)}.name-panel h2{margin:0 0 8px}.name-panel p{color:#64748b;font-size:14px}.name-panel input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit}.name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.name-actions button{padding:10px 16px;border:0;border-radius:10px;font-weight:700}.name-save{background:#2563eb;color:#fff}
 </style>
 </head>
 <body><div id="connectionState" class="connection-state" aria-live="polite">--/--</div><div class="name-overlay" id="nameOverlay" aria-hidden="true"><form class="name-panel" id="nameForm"><h2>なまえ</h2><p>テストの記録に使う名前を入力してください。</p><input id="studentName" maxlength="40" autocomplete="name" required aria-label="名前"><div class="name-actions"><button type="button" id="nameCancel">キャンセル</button><button class="name-save" type="submit">保存</button></div></form></div>
@@ -2351,7 +2351,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
         <path d="M3 15.2 16 4l13 11.2v12.3c0 .8-.7 1.5-1.5 1.5H20v-9h-8v9H4.5c-.8 0-1.5-.7-1.5-1.5V15.2Z" fill="currentColor"/>
       </svg>
     </button>
-      <button class="next-btn" id="stageTestBtn" type="button" hidden>テスト</button>
+      <button class="next-btn" id="stageTestBtn" type="button" hidden>测试</button>
     </div>
     <div class="game-controls-right">
       <button class="next-btn" id="backBtn">←もどる</button>
@@ -2386,10 +2386,10 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",authDomain:"database-s-9e4b3.firebaseapp.com",databaseURL:"https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"database-s-9e4b3",storageBucket:"database-s-9e4b3.firebasestorage.app",messagingSenderId:"13648984683",appId:"1:13648984683:web:c782d2963c253df69b8f2e"};
 const safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),localProgressKey=()=>`${LOCAL_KEY}:${safeKey(localStorage.getItem("kanamoji_student_name")||"anonymous")}`,readLocal=()=>{try{const saved=localStorage.getItem(localProgressKey());if(saved)return JSON.parse(saved);const legacy=JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}");return legacy.name===(localStorage.getItem("kanamoji_student_name")||"")?legacy:{}}catch{return {}}},writeLocal=d=>localStorage.setItem(localProgressKey(),JSON.stringify(d)),state=document.getElementById("connectionState");let api=null;
 const progressStageKey=stage=>`${document.body.dataset.kanaMode||"hiragana"}:${stage}`;
-function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const done=Number(data.stages?.[`${script}:${btn.dataset.stage}`]?.bestPct)>=100;let img=btn.querySelector(".stage-stamp");if(done&&!img){img=document.createElement("img");img.src="./stamp.png";img.alt="達成";img.className="stage-stamp";img.style.transform=`rotate(${(Math.random()*4-2).toFixed(2)}deg)`;btn.appendChild(img)}else if(!done&&img)img.remove()})}
+function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const progress=data.stages?.[`${script}:${btn.dataset.stage}`]||{},achieved=Number(progress.bestPct)>=100,count=achieved?Math.min(3,Math.max(1,Number(progress.count)||0)):0;btn.querySelector(".stage-stamps")?.remove();if(!count)return;const stamps=document.createElement("span");stamps.className="stage-stamps";stamps.setAttribute("aria-label",`達成 ${count}回`);for(let i=0;i<count;i++){const img=document.createElement("img");img.src="./stamp.png";img.alt="";img.className="stage-stamp";stamps.appendChild(img)}btn.appendChild(stamps)})}
 function mergeProgress(local,remote,name){const merged={name,stages:{},practiceStages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}for(const stage of new Set([...Object.keys(remote.practiceStages||{}),...Object.keys(local.practiceStages||{})])){const l=local.practiceStages?.[stage]||{},r=remote.practiceStages?.[stage]||{};merged.practiceStages[stage]={cleared:Boolean(l.cleared||r.cleared),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
-async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged=mergeProgress(local,remote,name);writeLocal(merged);renderStamps(merged);await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
-window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);sync()}};renderStamps();
+async function sync(){const name=localStorage.getItem("kanamoji_student_name")||"";if(!name||!api)return;const key=`name_${safeKey(name)}`,local=readLocal();try{const snap=await api.get(api.ref(api.db,`kanaProgress/${key}`)),remote=snap.exists()?snap.val():{},merged=mergeProgress(local,remote,name);writeLocal(merged);renderStamps(merged);window.dispatchEvent(new CustomEvent("kana-practice-progress"));await api.update(api.ref(api.db),{[`students/${key}/studentKey`]:key,[`students/${key}/name`]:name,[`students/${key}/lastSeenAt`]:Date.now(),[`kanaProgress/${key}`]:merged});state.textContent="--✧--"}catch{state.textContent="--/--"}}
+window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);renderStamps(data);return sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);window.dispatchEvent(new CustomEvent("kana-practice-progress"));return sync()}};renderStamps();
 try{const [{initializeApp},{getDatabase,ref,get,update,onValue}]=await Promise.all([import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")]),db=getDatabase(initializeApp(config));api={db,ref,get,update};onValue(ref(db,".info/connected"),snap=>{state.textContent=snap.val()===true?"--✧--":"--/--";if(snap.val()===true)sync()});sync()}catch{state.textContent="--/--"}
 </script>
 <script>
@@ -2408,7 +2408,7 @@ const ROWS = {
 
 const STAGES = {
   test:{
-    name:"テスト",
+    name:"测试",
     baseCount:2,
     questions:[
       {w:"あい", zh:"爱", icon:"❤️"},
@@ -2935,7 +2935,7 @@ function updateStageButtonLabels(){
     }
 
     if(key==="test"){
-      btn.textContent="テスト";
+      btn.textContent="测试";
       return;
     }
 
@@ -3173,7 +3173,7 @@ async function playWordAudio(word){
     if(run!==wordAudioRun)return;
     const stem=YOON_AUDIO_FILES[units[i]]||KANA_AUDIO_FILES[units[i]];
     await playStemToEnd(stem,run);
-    if(i<units.length-1)await waitAudio(200);
+    if(i<units.length-1)await waitAudio(20);
   }
   if(run===wordAudioRun&&!wasSolved)locked=false;
 }
@@ -4150,12 +4150,9 @@ function showPass(){
            style="height:${keepHeight}px;min-height:${keepHeight}px">
         <div class="complete-content">
           <div class="complete-title">${titleText}</div>
-          ${shuffleMode?'':'<button class="next-btn practice-test-btn" id="completeTestBtn" type="button">テスト</button>'}
         </div>
       </div>
     `;
-    const completeTestBtn=document.getElementById("completeTestBtn");
-    if(completeTestBtn)bindTap(completeTestBtn,startCurrentStageTest);
     return;
   }
 }
@@ -5179,11 +5176,18 @@ function bindTap(el,handler){
 const titleScreen=document.getElementById("titleScreen");
 const gameScreen=document.getElementById("gameScreen");
 
+function updateStageTestButton(){
+  const stageTestBtn=document.getElementById("stageTestBtn");
+  if(!stageTestBtn)return;
+  const practiceCleared=Boolean(window.KanaProgress?.hasPractice(launchedStageKey));
+  stageTestBtn.hidden=shuffleMode||!practiceCleared;
+}
+
 async function startCurrentStageTest(){
   const named=await requestStudentName();
   if(!named)return;
   const modeBtn=document.getElementById("titleModeButton");
-  if(modeBtn)modeBtn.textContent="テスト";
+  if(modeBtn)modeBtn.textContent="测试";
   updateStageButtonLabels();
   startStage(launchedStageKey);
 }
@@ -5197,13 +5201,12 @@ function startStage(key){
   preloadStageAudio(key).catch(()=>{});
 
   const modeBtn=document.getElementById("titleModeButton");
-  const isTest = modeBtn && modeBtn.textContent.trim()==="テスト";
+  const isTest = modeBtn && modeBtn.textContent.trim()==="测试";
 
   // 練習＝通常配置、テスト＝同じステージのばらばら配置
   shuffleMode = !!isTest;
   launchedStageKey=key;
-  const stageTestBtn=document.getElementById("stageTestBtn");
-  if(stageTestBtn)stageTestBtn.hidden=shuffleMode;
+  updateStageTestButton();
 
   correctSet=new Set();
   reviewQueue=[];
@@ -5297,6 +5300,7 @@ bindTap(document.getElementById("titleBtn"),()=>{
 });
 
 bindTap(document.getElementById("stageTestBtn"),startCurrentStageTest);
+window.addEventListener("kana-practice-progress",updateStageTestButton);
 
 bindTap(document.getElementById("backBtn"),()=>{
   if(locked)return;
@@ -5408,7 +5412,7 @@ function requestStudentName(){
       if(!named) return;
     }
 
-    btn.textContent = toTest ? "テスト" : "練習";
+    btn.textContent = toTest ? "测试" : "練習";
     // 練習／テスト切替後も、拗音練習ボタンの表示を再評価
     updateStageButtonLabels();
   };
