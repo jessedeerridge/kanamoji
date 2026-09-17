@@ -3099,6 +3099,7 @@ const STAGE_AUDIO_CHARS = {
 };
 
 const kanaAudioCache = new Map();
+const kanaAudioBlobUrls = new Map();
 const kanaPlaybackPools = new Map();
 const kanaPreloadJobs = new Map();
 const kanaPreloadQueue = [];
@@ -3119,8 +3120,17 @@ function audioKanaToHira(ch){
 }
 
 function getCachedAudio(stem){
-  if(kanaAudioCache.has(stem)) return kanaAudioCache.get(stem);
-  const a=new Audio(`./${stem}.mp3`);
+  if(kanaAudioCache.has(stem)){
+    const cached=kanaAudioCache.get(stem);
+    const blobUrl=kanaAudioBlobUrls.get(stem);
+    // 再生中の src を交換すると音が途切れるので、停止中にだけ反映する。
+    if(blobUrl && cached.paused && cached.src!==blobUrl){
+      cached.src=blobUrl;
+      cached.load();
+    }
+    return cached;
+  }
+  const a=new Audio(kanaAudioBlobUrls.get(stem)||`./${stem}.mp3`);
   a.preload="auto";
   a.playsInline=true;
   kanaAudioCache.set(stem,a);
@@ -3180,10 +3190,12 @@ function pumpKanaPreloads(){
     }
 
     let done=false;
+    let abortController=null;
     const finish=(ok)=>{
       if(done) return;
       done=true;
       clearTimeout(timer);
+      if(abortController)abortController.abort();
       a.removeEventListener("loadeddata",onReady);
       a.removeEventListener("canplay",onReady);
       a.removeEventListener("error",onError);
@@ -3195,13 +3207,38 @@ function pumpKanaPreloads(){
     };
     const onReady=()=>finish(true);
     const onError=()=>finish(false);
+    const loadAudioElement=()=>{
+      a.addEventListener("loadeddata",onReady,{once:true});
+      a.addEventListener("canplay",onReady,{once:true});
+      a.addEventListener("error",onError,{once:true});
+      try{ a.load(); }catch(_){ finish(false); }
+    };
     // GFW越しや混雑した学校回線でも接続を切り直さず、十分に待つ。
     const timer=setTimeout(()=>finish(a.readyState>=2),8000);
 
-    a.addEventListener("loadeddata",onReady,{once:true});
-    a.addEventListener("canplay",onReady,{once:true});
-    a.addEventListener("error",onError,{once:true});
-    try{ a.load(); }catch(_){ finish(false); }
+    // media 要素任せの先読みは、ブラウザによって再生時に再リクエストされる。
+    // MP3全体を Blob として保持し、以後の再生を必ずローカルURLから行う。
+    if(typeof fetch==="function" && typeof URL.createObjectURL==="function"){
+      abortController=typeof AbortController==="function" ? new AbortController() : null;
+      fetch(`./${stem}.mp3`,{
+        cache:"force-cache",
+        signal:abortController?.signal
+      }).then(response=>{
+        if(!response.ok)throw new Error(`audio HTTP ${response.status}`);
+        return response.blob();
+      }).then(blob=>{
+        if(done)return;
+        const blobUrl=URL.createObjectURL(blob);
+        kanaAudioBlobUrls.set(stem,blobUrl);
+        // 先読み中に直接再生が始まった場合、その再生は中断しない。
+        if(a.paused){
+          a.src=blobUrl;
+          loadAudioElement();
+        }else finish(true);
+      }).catch(error=>{
+        if(error?.name!=="AbortError" && !done)loadAudioElement();
+      });
+    }else loadAudioElement();
   }
 }
 
@@ -5570,7 +5607,6 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
   const warm=()=>warmStageAudio(btn.dataset.stage).catch(()=>{});
   btn.addEventListener("pointerdown",warm,{passive:true});
   btn.addEventListener("focus",warm,{passive:true});
-  btn.addEventListener("mouseenter",warm,{passive:true,once:true});
   bindTap(btn,async ()=>{
     const stage=btn.dataset.stage;
     if(PASSWORD_LOCKED_STAGES.has(stage)){
