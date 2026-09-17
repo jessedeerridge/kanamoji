@@ -3110,6 +3110,7 @@ let activeKanaAudio = null;
 let activeKanaFinish = null;
 let lastPieceAudioPromise = Promise.resolve(true);
 let questionTransitionPending = false;
+let currentWordAudioStems = new Set();
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -3177,6 +3178,33 @@ function prioritizeStem(stem){
   const index=kanaPreloadQueue.findIndex(item=>item.stem===stem);
   if(index>0)kanaPreloadQueue.unshift(...kanaPreloadQueue.splice(index,1));
   return preloadOneStem(stem);
+}
+
+function prioritizeStemForPlayback(stem){
+  // 実際の再生要求はバックグラウンド先読みより常に優先する。
+  // 低速回線で4本すべてが詰まっていても、不要な取得の8秒タイムアウトを
+  // 待たずに中断して、この音声用の通信枠を直ちに空ける。
+  const job=preloadOneStem(stem);
+  const wantedIndex=kanaPreloadQueue.findIndex(item=>item.stem===stem);
+  if(wantedIndex>0)kanaPreloadQueue.unshift(...kanaPreloadQueue.splice(wantedIndex,1));
+
+  for(let i=kanaPreloadQueue.length-1;i>=0;i--){
+    const pending=kanaPreloadQueue[i];
+    if(pending.stem===stem || currentWordAudioStems.has(pending.stem))continue;
+    kanaPreloadQueue.splice(i,1);
+    kanaPreloadJobs.delete(pending.stem);
+    pending.resolve(false);
+  }
+
+  for(const [loadingStem,cancel] of [...kanaPreloadCancels]){
+    if(loadingStem!==stem && !currentWordAudioStems.has(loadingStem))cancel();
+  }
+  if(!kanaPreloadCancels.has(stem) && kanaPreloadsRunning>=AUDIO_PRELOAD_CONCURRENCY){
+    const replaceable=[...kanaPreloadCancels].reverse()
+      .find(([loadingStem])=>loadingStem!==stem);
+    if(replaceable)replaceable[1]();
+  }
+  return job;
 }
 
 function pumpKanaPreloads(){
@@ -3302,8 +3330,8 @@ function stopKanaAudio(){
 
 function playStem(stem){
   if(!stem) return Promise.resolve(false);
-  // バックグラウンドキューに残っている場合も、この音を最優先へ移す。
-  prioritizeStem(stem);
+  // 詰まったバックグラウンド取得を破棄し、この音の通信枠を確保する。
+  prioritizeStemForPlayback(stem);
   stopKanaAudio();
   // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
   const a=createPlaybackAudio(stem);
@@ -3411,6 +3439,7 @@ function resetQuestionAudio(){
   // 問題をまたいだ再生・再試行・バックグラウンド取得を残さない。
   // 前問の大量取得が通信枠を占有すると、新しい問題の最初の音が遅れる。
   cancelWordAudio();
+  currentWordAudioStems=new Set();
 
   for(const pool of kanaPlaybackPools.values()){
     for(const audio of pool.audios){
@@ -3428,15 +3457,17 @@ function resetQuestionAudio(){
 }
 
 function warmWordAudio(word){
+  const wordStems=wordAudioUnits(word).map(stemForKana).filter(Boolean);
+  currentWordAudioStems=new Set(wordStems);
   const stems=[...new Set([
-    ...wordAudioUnits(word).map(stemForKana),
+    ...wordStems,
     ...primaryAudioStemsForStage(stageKey)
   ].filter(Boolean))];
   return Promise.all(stems.map(prioritizeStem));
 }
 function playWordStem(stem,run){
   if(!stem) return Promise.resolve(false);
-  prioritizeStem(stem);
+  prioritizeStemForPlayback(stem);
   const a=createPlaybackAudio(stem);
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
