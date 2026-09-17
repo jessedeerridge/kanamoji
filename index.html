@@ -3103,6 +3103,7 @@ const kanaAudioBlobUrls = new Map();
 const kanaPlaybackPools = new Map();
 const kanaPreloadJobs = new Map();
 const kanaPreloadQueue = [];
+const kanaPreloadCancels = new Map();
 const AUDIO_PRELOAD_CONCURRENCY = 4;
 let kanaPreloadsRunning = 0;
 let activeKanaAudio = null;
@@ -3196,6 +3197,7 @@ function pumpKanaPreloads(){
       done=true;
       clearTimeout(timer);
       if(abortController)abortController.abort();
+      kanaPreloadCancels.delete(stem);
       a.removeEventListener("loadeddata",onReady);
       a.removeEventListener("canplay",onReady);
       a.removeEventListener("error",onError);
@@ -3207,6 +3209,7 @@ function pumpKanaPreloads(){
     };
     const onReady=()=>finish(true);
     const onError=()=>finish(false);
+    kanaPreloadCancels.set(stem,()=>finish(false));
     const loadAudioElement=()=>{
       a.addEventListener("loadeddata",onReady,{once:true});
       a.addEventListener("canplay",onReady,{once:true});
@@ -3402,6 +3405,34 @@ function cancelWordAudio(){
   wordAudioRun++;
   stopWordAudioElements();
   stopKanaAudio();
+}
+
+function resetQuestionAudio(){
+  // 問題をまたいだ再生・再試行・バックグラウンド取得を残さない。
+  // 前問の大量取得が通信枠を占有すると、新しい問題の最初の音が遅れる。
+  cancelWordAudio();
+
+  for(const pool of kanaPlaybackPools.values()){
+    for(const audio of pool.audios){
+      try{audio.pause();audio.currentTime=0}catch(_){}
+    }
+  }
+
+  while(kanaPreloadQueue.length){
+    const pending=kanaPreloadQueue.shift();
+    kanaPreloadJobs.delete(pending.stem);
+    pending.resolve(false);
+  }
+  for(const cancel of [...kanaPreloadCancels.values()])cancel();
+  kanaPreloadCancels.clear();
+}
+
+function warmWordAudio(word){
+  const stems=[...new Set([
+    ...wordAudioUnits(word).map(stemForKana),
+    ...primaryAudioStemsForStage(stageKey)
+  ].filter(Boolean))];
+  return Promise.all(stems.map(prioritizeStem));
 }
 function playWordStem(stem,run){
   if(!stem) return Promise.resolve(false);
@@ -3749,7 +3780,7 @@ function startYoonWordPhase(){
 function renderQuestion(){
   // 問題を描き替える前に、前問の読み上げ・ピース音を必ず破棄する。
   clearYoonAutoPlayTimer();
-  cancelWordAudio();
+  resetQuestionAudio();
   lastPieceAudioPromise=Promise.resolve(false);
   locked=false;
   selectedTile=null;
@@ -3834,6 +3865,7 @@ function renderQuestion(){
     renderYoonBoard();
     boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
+    warmWordAudio(question().w).catch(()=>{});
     playWordAudio(question().w);
     return;
   }
@@ -3875,6 +3907,7 @@ function renderQuestion(){
   boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
   // 新しい問題が表示されたら、最初に語を発音
+  warmWordAudio(question().w).catch(()=>{});
   playWordAudio(question().w);
 }
 
@@ -4028,6 +4061,10 @@ function bindPointerDrag({
 function renderYoonListeningQuestion(){
   const q=activeQuestions()[qIndex];
   if(!q) return;
+
+  // この問題で鳴らす正解音を、前問の取得を破棄した直後に最優先で準備する。
+  const targetStem=stemForKana(q.target);
+  if(targetStem)prioritizeStem(targetStem);
 
   stageNameEl.textContent="拗音練習";
   setQuestionProgressVisible(true);
