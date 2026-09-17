@@ -3085,34 +3085,13 @@ const YOON_AUDIO_FILES = {
   "りゃ":"19_りゃ","りゅ":"20_りゅ","りょ":"21_りょ"
 };
 
-const STAGE_AUDIO_CHARS = {
-  a:["あ","い","う","え","お"],
-  k:["か","き","く","け","こ"],
-  s:["さ","し","す","せ","そ"],
-  t:["た","ち","つ","て","と"],
-  n:["な","に","ぬ","ね","の"],
-  h:["は","ひ","ふ","へ","ほ"],
-  m:["ま","み","む","め","も"],
-  y:["や","ゆ","よ"],
-  r:["ら","り","る","れ","ろ"],
-  w:["わ","を","ん"]
-};
-
 const kanaAudioCache = new Map();
-const kanaAudioBlobUrls = new Map();
-const kanaPlaybackPools = new Map();
-const kanaPreloadJobs = new Map();
-const kanaPreloadQueue = [];
-const kanaPreloadCancels = new Map();
-const AUDIO_PRELOAD_CONCURRENCY = 4;
 const AUDIO_START_TIMEOUT = 1800;
 const AUDIO_END_TIMEOUT = 5000;
-let kanaPreloadsRunning = 0;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
 let lastPieceAudioPromise = Promise.resolve(true);
 let questionTransitionPending = false;
-let currentWordAudioStems = new Set();
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -3124,17 +3103,8 @@ function audioKanaToHira(ch){
 }
 
 function getCachedAudio(stem){
-  if(kanaAudioCache.has(stem)){
-    const cached=kanaAudioCache.get(stem);
-    const blobUrl=kanaAudioBlobUrls.get(stem);
-    // 再生中の src を交換すると音が途切れるので、停止中にだけ反映する。
-    if(blobUrl && cached.paused && cached.src!==blobUrl){
-      cached.src=blobUrl;
-      cached.load();
-    }
-    return cached;
-  }
-  const a=new Audio(kanaAudioBlobUrls.get(stem)||`./${stem}.mp3`);
+  if(kanaAudioCache.has(stem))return kanaAudioCache.get(stem);
+  const a=new Audio(`./${stem}.mp3`);
   a.preload="auto";
   a.playsInline=true;
   kanaAudioCache.set(stem,a);
@@ -3142,184 +3112,13 @@ function getCachedAudio(stem){
 }
 
 function createPlaybackAudio(stem){
-  let pool=kanaPlaybackPools.get(stem);
-  if(!pool){
-    const cached=getCachedAudio(stem);
-    // 複製を一度に load() すると、特に中国からの高遅延回線では接続枠を
-    // 音声だけで使い切る。通常は読み込み済みの1要素だけを再利用する。
-    pool={audios:[cached]};
-    kanaPlaybackPools.set(stem,pool);
-  }
-  let audio=pool.audios.find(item=>item.paused || item.ended);
-  // 単語の文字を少し重ねる場合に限り、複製を遅延生成する。
-  if(!audio && pool.audios.length<2){
-    audio=getCachedAudio(stem).cloneNode(true);
-    audio.preload="auto";
-    audio.playsInline=true;
-    pool.audios.push(audio);
-  }
-  audio=audio||pool.audios[0];
+  const audio=getCachedAudio(stem);
   try{audio.pause();audio.currentTime=0}catch(_){}
   return audio;
 }
 
-function preloadOneStem(stem){
-  if(kanaPreloadJobs.has(stem))return kanaPreloadJobs.get(stem);
-  let resolveJob;
-  const job=new Promise(resolve=>{resolveJob=resolve});
-  kanaPreloadJobs.set(stem,job);
-  kanaPreloadQueue.push({stem,resolve:resolveJob});
-  pumpKanaPreloads();
-  return job;
-}
-
-// 画面で次に必要になる音を、復習用のバックグラウンド読み込みより先にする。
-// 小さいMP3でも1ファイルごとに通信の往復が発生するため、古い行から順に
-// 取得すると後半ステージの最初の音が長いキューの末尾に隠れてしまう。
-function prioritizeStem(stem){
-  const index=kanaPreloadQueue.findIndex(item=>item.stem===stem);
-  if(index>0)kanaPreloadQueue.unshift(...kanaPreloadQueue.splice(index,1));
-  return preloadOneStem(stem);
-}
-
-function prioritizeStemForPlayback(stem){
-  // 実際の再生要求はバックグラウンド先読みより常に優先する。
-  // 低速回線で4本すべてが詰まっていても、不要な取得の8秒タイムアウトを
-  // 待たずに中断して、この音声用の通信枠を直ちに空ける。
-  const job=preloadOneStem(stem);
-  const wantedIndex=kanaPreloadQueue.findIndex(item=>item.stem===stem);
-  if(wantedIndex>0)kanaPreloadQueue.unshift(...kanaPreloadQueue.splice(wantedIndex,1));
-
-  for(let i=kanaPreloadQueue.length-1;i>=0;i--){
-    const pending=kanaPreloadQueue[i];
-    if(pending.stem===stem || currentWordAudioStems.has(pending.stem))continue;
-    kanaPreloadQueue.splice(i,1);
-    kanaPreloadJobs.delete(pending.stem);
-    pending.resolve(false);
-  }
-
-  for(const [loadingStem,cancel] of [...kanaPreloadCancels]){
-    if(loadingStem!==stem && !currentWordAudioStems.has(loadingStem))cancel();
-  }
-  if(!kanaPreloadCancels.has(stem) && kanaPreloadsRunning>=AUDIO_PRELOAD_CONCURRENCY){
-    const replaceable=[...kanaPreloadCancels].reverse()
-      .find(([loadingStem])=>loadingStem!==stem);
-    if(replaceable)replaceable[1]();
-  }
-  return job;
-}
-
-function pumpKanaPreloads(){
-  while(kanaPreloadsRunning<AUDIO_PRELOAD_CONCURRENCY && kanaPreloadQueue.length){
-    const {stem,resolve}=kanaPreloadQueue.shift();
-    kanaPreloadsRunning++;
-    const a=getCachedAudio(stem);
-    if(a.readyState>=2){
-      kanaPreloadsRunning--;
-      resolve(true);
-      continue;
-    }
-
-    let done=false;
-    let abortController=null;
-    const finish=(ok)=>{
-      if(done) return;
-      done=true;
-      clearTimeout(timer);
-      if(abortController)abortController.abort();
-      kanaPreloadCancels.delete(stem);
-      a.removeEventListener("loadeddata",onReady);
-      a.removeEventListener("canplay",onReady);
-      a.removeEventListener("error",onError);
-      // 一時的な切断なら、次回のステージ開始で再取得できるようにする。
-      if(!ok)kanaPreloadJobs.delete(stem);
-      resolve(ok);
-      kanaPreloadsRunning--;
-      pumpKanaPreloads();
-    };
-    const onReady=()=>finish(true);
-    const onError=()=>finish(false);
-    kanaPreloadCancels.set(stem,()=>finish(false));
-    const loadAudioElement=()=>{
-      a.addEventListener("loadeddata",onReady,{once:true});
-      a.addEventListener("canplay",onReady,{once:true});
-      a.addEventListener("error",onError,{once:true});
-      try{ a.load(); }catch(_){ finish(false); }
-    };
-    // GFW越しや混雑した学校回線でも接続を切り直さず、十分に待つ。
-    const timer=setTimeout(()=>finish(a.readyState>=2),8000);
-
-    // media 要素任せの先読みは、ブラウザによって再生時に再リクエストされる。
-    // MP3全体を Blob として保持し、以後の再生を必ずローカルURLから行う。
-    if(typeof fetch==="function" && typeof URL.createObjectURL==="function"){
-      abortController=typeof AbortController==="function" ? new AbortController() : null;
-      fetch(`./${stem}.mp3`,{
-        cache:"force-cache",
-        signal:abortController?.signal
-      }).then(response=>{
-        if(!response.ok)throw new Error(`audio HTTP ${response.status}`);
-        return response.blob();
-      }).then(blob=>{
-        if(done)return;
-        const blobUrl=URL.createObjectURL(blob);
-        kanaAudioBlobUrls.set(stem,blobUrl);
-        // 先読み中に直接再生が始まった場合、その再生は中断しない。
-        if(a.paused){
-          a.src=blobUrl;
-          loadAudioElement();
-        }else finish(true);
-      }).catch(error=>{
-        if(error?.name!=="AbortError" && !done)loadAudioElement();
-      });
-    }else loadAudioElement();
-  }
-}
-
-function audioCharsNeededForStage(key){
-  if(key==="yoon") return Object.keys(YOON_AUDIO_FILES);
-  if(key==="all") return Object.keys(KANA_AUDIO_FILES);
-
-  if(key==="test") return STAGE_AUDIO_CHARS.a;
-
-  const order=["a","k","s","t","n","h","m","y","r","w"];
-  const idx=order.indexOf(key);
-  if(idx<0) return [];
-
-  // まず現在の行を取得する。以前の行は単語問題に備えて後から読み込む。
-  const needed=[...(STAGE_AUDIO_CHARS[key]||[])];
-  for(let i=idx-1;i>=0;i--){
-    needed.push(...(STAGE_AUDIO_CHARS[order[i]]||[]));
-  }
-  return [...new Set(needed)];
-}
-
-function primaryAudioStemsForStage(key){
-  if(key==="yoon")return Object.values(YOON_AUDIO_FILES);
-  const primaryKey=(key==="all" || key==="test") ? "a" : key;
-  return (STAGE_AUDIO_CHARS[primaryKey]||[])
-    .map(ch=>KANA_AUDIO_FILES[ch])
-    .filter(Boolean);
-}
-
-function warmStageAudio(key){
-  // ステージを押した瞬間（パスワード表示中も含む）から最初の行を先行取得する。
-  return Promise.all(primaryAudioStemsForStage(key).map(prioritizeStem));
-}
-
-async function preloadStageAudio(key){
-  let stems;
-  if(key==="yoon"){
-    stems=Object.values(YOON_AUDIO_FILES);
-  }else{
-    stems=audioCharsNeededForStage(key)
-      .map(ch=>KANA_AUDIO_FILES[ch])
-      .filter(Boolean);
-  }
-  const primary=new Set(primaryAudioStemsForStage(key));
-  // 最初に使う音のグループを優先し、単語・復習用の音はその後に続ける。
-  await Promise.all([...primary].map(prioritizeStem));
-  await Promise.all(stems.filter(stem=>!primary.has(stem)).map(preloadOneStem));
-}
+// 音声は再生要求時に直接読み込む。バックグラウンドの取得キューは、
+// 遅いリクエストが通信枠を占有して後続の再生まで止めるため使用しない。
 
 function stopKanaAudio(){
   if(activeKanaFinish)activeKanaFinish(false);
@@ -3332,8 +3131,6 @@ function stopKanaAudio(){
 
 function playStem(stem){
   if(!stem) return Promise.resolve(false);
-  // 詰まったバックグラウンド取得を破棄し、この音の通信枠を確保する。
-  prioritizeStemForPlayback(stem);
   stopKanaAudio();
   // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
   const a=createPlaybackAudio(stem);
@@ -3412,21 +3209,13 @@ function playStem(stem){
 function playDroppedKana(ch){
   const stem = stemForKana(ch);
   if(!stem) return Promise.resolve(false);
-  return playKanaQueued(stem);
-}
-
-/* ===== 音声キュー：押した音を途中で消さない ===== */
-let kanaAudioPlayQueue = Promise.resolve();
-
-function playKanaQueued(stem){
-  // 終了待ちのキューを使わず、タップした音をすぐ再生する。
   return playStem(stem);
 }
 
 function playKanaAudio(kana){
   const stem = stemForKana(kana);
   if(!stem) return Promise.resolve(false);
-  return playKanaQueued(stem);
+  return playStem(stem);
 }
 function playYoonPieceAudio(pieceText){
   return playStem(stemForKana(pieceText));
@@ -3450,38 +3239,16 @@ function cancelWordAudio(){
 }
 
 function resetQuestionAudio(){
-  // 問題をまたいだ再生・再試行・バックグラウンド取得を残さない。
-  // 前問の大量取得が通信枠を占有すると、新しい問題の最初の音が遅れる。
+  // 問題をまたいだ再生・再試行を残さない。
   cancelWordAudio();
-  currentWordAudioStems=new Set();
 
-  for(const pool of kanaPlaybackPools.values()){
-    for(const audio of pool.audios){
-      try{audio.pause();audio.currentTime=0}catch(_){}
-    }
+  for(const audio of kanaAudioCache.values()){
+    try{audio.pause();audio.currentTime=0}catch(_){}
   }
 
-  while(kanaPreloadQueue.length){
-    const pending=kanaPreloadQueue.shift();
-    kanaPreloadJobs.delete(pending.stem);
-    pending.resolve(false);
-  }
-  for(const cancel of [...kanaPreloadCancels.values()])cancel();
-  kanaPreloadCancels.clear();
-}
-
-function warmWordAudio(word){
-  const wordStems=wordAudioUnits(word).map(stemForKana).filter(Boolean);
-  currentWordAudioStems=new Set(wordStems);
-  const stems=[...new Set([
-    ...wordStems,
-    ...primaryAudioStemsForStage(stageKey)
-  ].filter(Boolean))];
-  return Promise.all(stems.map(prioritizeStem));
 }
 function playWordStem(stem,run){
   if(!stem) return Promise.resolve(false);
-  prioritizeStemForPlayback(stem);
   const a=createPlaybackAudio(stem);
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
@@ -3916,7 +3683,6 @@ function renderQuestion(){
     renderYoonBoard();
     boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
-    warmWordAudio(question().w).catch(()=>{});
     playWordAudio(question().w);
     return;
   }
@@ -3958,7 +3724,6 @@ function renderQuestion(){
   boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
   // 新しい問題が表示されたら、最初に語を発音
-  warmWordAudio(question().w).catch(()=>{});
   playWordAudio(question().w);
 }
 
@@ -4112,10 +3877,6 @@ function bindPointerDrag({
 function renderYoonListeningQuestion(){
   const q=activeQuestions()[qIndex];
   if(!q) return;
-
-  // この問題で鳴らす正解音を、前問の取得を破棄した直後に最優先で準備する。
-  const targetStem=stemForKana(q.target);
-  if(targetStem)prioritizeStem(targetStem);
 
   stageNameEl.textContent="拗音練習";
   setQuestionProgressVisible(true);
@@ -5645,10 +5406,6 @@ function startStage(key,{forceTest=false}={}){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
-  // ステージ開始を音声読み込みで止めない。
-  // 必要な音声は裏で読み込み、画面はすぐ開始する。
-  preloadStageAudio(key).catch(()=>{});
-
   const modeBtn=document.getElementById("titleModeButton");
   const isTest = forceTest || (modeBtn && modeBtn.textContent.trim()==="测试");
 
@@ -5727,11 +5484,6 @@ function startStage(key,{forceTest=false}={}){
 const PASSWORD_LOCKED_STAGES = new Set(["t","n","h","m","y","r","w","all","yoon"]);
 
 document.querySelectorAll(".title-stage-btn").forEach(btn=>{
-  // click より早い pointerdown から取得を始める。ロック対象では、利用者が
-  // パスワードを入力している時間も先読み時間として有効に使える。
-  const warm=()=>warmStageAudio(btn.dataset.stage).catch(()=>{});
-  btn.addEventListener("pointerdown",warm,{passive:true});
-  btn.addEventListener("focus",warm,{passive:true});
   bindTap(btn,async ()=>{
     const stage=btn.dataset.stage;
     if(PASSWORD_LOCKED_STAGES.has(stage)){
