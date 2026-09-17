@@ -3088,6 +3088,7 @@ const YOON_AUDIO_FILES = {
 const kanaAudioCache = new Map();
 const AUDIO_START_TIMEOUT = 1800;
 const AUDIO_END_TIMEOUT = 5000;
+const WORD_AUDIO_OVERLAP = 0.22;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
 let lastPieceAudioPromise = Promise.resolve(true);
@@ -3112,13 +3113,36 @@ function getCachedAudio(stem){
 }
 
 function createPlaybackAudio(stem){
-  const audio=getCachedAudio(stem);
+  const cached=getCachedAudio(stem);
+  // 同じ文字が連続する単語だけ一時要素を使う。保持はせず、再生終了時に
+  // activeWordAudios から除かれるのでAudio要素が蓄積しない。
+  const audio=cached.paused || cached.ended ? cached : cached.cloneNode(true);
+  audio.preload="auto";
+  audio.playsInline=true;
   try{audio.pause();audio.currentTime=0}catch(_){}
   return audio;
 }
 
 // 音声は再生要求時に直接読み込む。バックグラウンドの取得キューは、
 // 遅いリクエストが通信枠を占有して後続の再生まで止めるため使用しない。
+
+function primeAudioStems(stems){
+  for(const stem of new Set(stems.filter(Boolean))){
+    const audio=getCachedAudio(stem);
+    if(audio.readyState===0){
+      try{audio.load()}catch(_){}
+    }
+  }
+}
+
+function primeStageAudio(key){
+  const rowKey=(key==="all" || key==="test") ? "a" : key;
+  primeAudioStems((ROWS[rowKey]||[]).map(kana=>KANA_AUDIO_FILES[kana]));
+}
+
+function primeWordAudio(word){
+  primeAudioStems(wordAudioUnits(word).map(stemForKana));
+}
 
 function stopKanaAudio(){
   if(activeKanaFinish)activeKanaFinish(false);
@@ -3255,10 +3279,17 @@ function playWordStem(stem,run){
     let advanced=false;
     let endTimer=0;
     const advance=ok=>{if(advanced)return;advanced=true;clearTimeout(startTimer);clearTimeout(endTimer);resolve(ok)};
-    const cleanup=()=>{a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("playing",onPlaying);activeWordAudios.delete(a)};
+    const cleanup=()=>{a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("playing",onPlaying);a.removeEventListener("timeupdate",nearEnd);activeWordAudios.delete(a)};
     const cancel=()=>{try{a.pause();a.currentTime=0}catch(_){}cleanup();advance(false)};
     const ended=()=>{cleanup();advance(true)};
     const failed=()=>{cleanup();advance(false)};
+    const nearEnd=()=>{
+      if(Number.isFinite(a.duration) && a.duration-a.currentTime<=WORD_AUDIO_OVERLAP){
+        // 録音末尾の無音だけを重ね、発音本体は欠けさせない。
+        a.removeEventListener("timeupdate",nearEnd);
+        advance(true);
+      }
+    };
     const onPlaying=()=>{
       clearTimeout(startTimer);
       endTimer=setTimeout(cancel,AUDIO_END_TIMEOUT);
@@ -3268,6 +3299,7 @@ function playWordStem(stem,run){
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
     a.addEventListener("playing",onPlaying,{once:true});
+    a.addEventListener("timeupdate",nearEnd);
     let playAttempts=0;
     const startPlayback=()=>{
       if(run!==wordAudioRun){cancel();return}
@@ -3296,6 +3328,7 @@ async function playWordAudio(word){
   stopWordAudioElements();
   stopKanaAudio();
   const run=++wordAudioRun;
+  primeWordAudio(word);
   const units=wordAudioUnits(word);
   for(let i=0;i<units.length;i++){
     if(run!==wordAudioRun)return;
@@ -5406,6 +5439,9 @@ function startStage(key,{forceTest=false}={}){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
+  // 大量のバックグラウンドキューは作らず、最初に触る最大5音だけ準備する。
+  primeStageAudio(key);
+
   const modeBtn=document.getElementById("titleModeButton");
   const isTest = forceTest || (modeBtn && modeBtn.textContent.trim()==="测试");
 
@@ -5484,6 +5520,7 @@ function startStage(key,{forceTest=false}={}){
 const PASSWORD_LOCKED_STAGES = new Set(["t","n","h","m","y","r","w","all","yoon"]);
 
 document.querySelectorAll(".title-stage-btn").forEach(btn=>{
+  btn.addEventListener("pointerdown",()=>primeStageAudio(btn.dataset.stage),{passive:true});
   bindTap(btn,async ()=>{
     const stage=btn.dataset.stage;
     if(PASSWORD_LOCKED_STAGES.has(stage)){
