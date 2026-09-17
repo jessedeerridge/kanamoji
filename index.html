@@ -3159,6 +3159,15 @@ function preloadOneStem(stem){
   return job;
 }
 
+// 画面で次に必要になる音を、復習用のバックグラウンド読み込みより先にする。
+// 小さいMP3でも1ファイルごとに通信の往復が発生するため、古い行から順に
+// 取得すると後半ステージの最初の音が長いキューの末尾に隠れてしまう。
+function prioritizeStem(stem){
+  const index=kanaPreloadQueue.findIndex(item=>item.stem===stem);
+  if(index>0)kanaPreloadQueue.unshift(...kanaPreloadQueue.splice(index,1));
+  return preloadOneStem(stem);
+}
+
 function pumpKanaPreloads(){
   while(kanaPreloadsRunning<AUDIO_PRELOAD_CONCURRENCY && kanaPreloadQueue.length){
     const {stem,resolve}=kanaPreloadQueue.shift();
@@ -3200,16 +3209,31 @@ function audioCharsNeededForStage(key){
   if(key==="yoon") return Object.keys(YOON_AUDIO_FILES);
   if(key==="all") return Object.keys(KANA_AUDIO_FILES);
 
+  if(key==="test") return STAGE_AUDIO_CHARS.a;
+
   const order=["a","k","s","t","n","h","m","y","r","w"];
   const idx=order.indexOf(key);
   if(idx<0) return [];
 
-  // 後半の単語・復習で使うため、現在の行＋それ以前の行を全部準備する。
-  const needed=[];
-  for(let i=0;i<=idx;i++){
+  // まず現在の行を取得する。以前の行は単語問題に備えて後から読み込む。
+  const needed=[...(STAGE_AUDIO_CHARS[key]||[])];
+  for(let i=idx-1;i>=0;i--){
     needed.push(...(STAGE_AUDIO_CHARS[order[i]]||[]));
   }
   return [...new Set(needed)];
+}
+
+function primaryAudioStemsForStage(key){
+  if(key==="yoon")return Object.values(YOON_AUDIO_FILES);
+  const primaryKey=(key==="all" || key==="test") ? "a" : key;
+  return (STAGE_AUDIO_CHARS[primaryKey]||[])
+    .map(ch=>KANA_AUDIO_FILES[ch])
+    .filter(Boolean);
+}
+
+function warmStageAudio(key){
+  // ステージを押した瞬間（パスワード表示中も含む）から最初の行を先行取得する。
+  return Promise.all(primaryAudioStemsForStage(key).map(prioritizeStem));
 }
 
 async function preloadStageAudio(key){
@@ -3221,7 +3245,10 @@ async function preloadStageAudio(key){
       .map(ch=>KANA_AUDIO_FILES[ch])
       .filter(Boolean);
   }
-  await Promise.all(stems.map(preloadOneStem));
+  const primary=new Set(primaryAudioStemsForStage(key));
+  // 最初に使う音のグループを優先し、単語・復習用の音はその後に続ける。
+  await Promise.all([...primary].map(prioritizeStem));
+  await Promise.all(stems.filter(stem=>!primary.has(stem)).map(preloadOneStem));
 }
 
 function stopKanaAudio(){
@@ -3235,6 +3262,8 @@ function stopKanaAudio(){
 
 function playStem(stem){
   if(!stem) return Promise.resolve(false);
+  // バックグラウンドキューに残っている場合も、この音を最優先へ移す。
+  prioritizeStem(stem);
   stopKanaAudio();
   // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
   const a=createPlaybackAudio(stem);
@@ -5536,6 +5565,12 @@ function startStage(key,{forceTest=false}={}){
 const PASSWORD_LOCKED_STAGES = new Set(["t","n","h","m","y","r","w","all","yoon"]);
 
 document.querySelectorAll(".title-stage-btn").forEach(btn=>{
+  // click より早い pointerdown から取得を始める。ロック対象では、利用者が
+  // パスワードを入力している時間も先読み時間として有効に使える。
+  const warm=()=>warmStageAudio(btn.dataset.stage).catch(()=>{});
+  btn.addEventListener("pointerdown",warm,{passive:true});
+  btn.addEventListener("focus",warm,{passive:true});
+  btn.addEventListener("mouseenter",warm,{passive:true,once:true});
   bindTap(btn,async ()=>{
     const stage=btn.dataset.stage;
     if(PASSWORD_LOCKED_STAGES.has(stage)){
