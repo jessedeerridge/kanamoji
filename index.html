@@ -3292,14 +3292,6 @@ function playKanaAudio(kana){
   return playStem(stem);
 }
 
-// 回答枠は問題ごとに作り直されるため、documentへの委譲で常に有効にする。
-document.addEventListener("click",event=>{
-  const slot=event.target.closest?.("#slots .slot");
-  if(!slot || stageKey==="yoon")return;
-  const kana=slot.dataset.kanaValue;
-  if(kana)playKanaAudio(kana);
-});
-
 function playYoonPieceAudio(pieceText){
   return playStem(stemForKana(pieceText));
 }
