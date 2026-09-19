@@ -761,6 +761,10 @@ button,.title-practice-badge{
     position:absolute;
     inset:-8px;
   }
+  /* 拗音は行間が狭いため、拡張したタップ領域を隣のピースへ重ねない。 */
+  .tile.yoon-piece::before{
+    inset:0;
+  }
 }
 
 
