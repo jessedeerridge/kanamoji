@@ -3086,44 +3086,13 @@ const YOON_AUDIO_FILES = {
 };
 
 const kanaAudioCache = new Map();
-const audioBufferCache = new Map();
-const audioBufferLoading = new Map();
 const AUDIO_START_TIMEOUT = 1800;
 const AUDIO_END_TIMEOUT = 5000;
 const WORD_AUDIO_OVERLAP = 0.22;
-const AUDIO_PRELOAD_CONCURRENCY = 4;
-let webAudioContext = null;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
-let activeKanaSource = null;
 let lastPieceAudioPromise = Promise.resolve(true);
 let questionTransitionPending = false;
-let eagerAudioPreloadStarted = false;
-let kanaPlaybackRequestId = 0;
-
-function getWebAudioContext(){
-  if(webAudioContext) return webAudioContext;
-  const Ctx=window.AudioContext||window.webkitAudioContext;
-  if(!Ctx) return null;
-  try{
-    webAudioContext=new Ctx({latencyHint:"interactive"});
-  }catch(_){
-    try{webAudioContext=new Ctx()}catch(__){webAudioContext=null}
-  }
-  return webAudioContext;
-}
-
-function unlockWebAudio(){
-  const ctx=getWebAudioContext();
-  if(ctx && ctx.state==="suspended"){
-    try{ctx.resume()}catch(_){}
-  }
-}
-
-// 最初のユーザー操作で AudioContext を確実に解放する。
-["pointerdown","touchstart","keydown","mousedown"].forEach(type=>{
-  window.addEventListener(type,unlockWebAudio,{once:true,passive:true});
-});
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -3134,7 +3103,6 @@ function audioKanaToHira(ch){
   return smallMap[hira]||hira;
 }
 
-// HTMLAudioElement は Web Audio API が使えない環境用の予備。
 function getCachedAudio(stem){
   if(kanaAudioCache.has(stem))return kanaAudioCache.get(stem);
   const a=new Audio(`./${stem}.mp3`);
@@ -3146,6 +3114,8 @@ function getCachedAudio(stem){
 
 function createPlaybackAudio(stem){
   const cached=getCachedAudio(stem);
+  // 同じ文字が連続する単語だけ一時要素を使う。保持はせず、再生終了時に
+  // activeWordAudios から除かれるのでAudio要素が蓄積しない。
   const audio=cached.paused || cached.ended ? cached : cached.cloneNode(true);
   audio.preload="auto";
   audio.playsInline=true;
@@ -3153,256 +3123,146 @@ function createPlaybackAudio(stem){
   return audio;
 }
 
-async function loadAudioBuffer(stem){
-  if(!stem) return null;
-  if(audioBufferCache.has(stem)) return audioBufferCache.get(stem);
-  if(audioBufferLoading.has(stem)) return audioBufferLoading.get(stem);
-
-  const ctx=getWebAudioContext();
-  if(!ctx) return null;
-
-  const task=(async()=>{
-    try{
-      // same-origin の MP3 を一度だけ取得し、PCM に展開してメモリへ保持。
-      // 以後の再生ではネットワークも HTMLAudioElement の読み込み待ちも発生しない。
-      const response=await fetch(`./${stem}.mp3`,{cache:"force-cache"});
-      if(!response.ok) throw new Error(`HTTP ${response.status}`);
-      const bytes=await response.arrayBuffer();
-      const buffer=await ctx.decodeAudioData(bytes.slice(0));
-      audioBufferCache.set(stem,buffer);
-      return buffer;
-    }catch(err){
-      console.warn("WebAudio preload failed:",stem,err);
-      return null;
-    }finally{
-      audioBufferLoading.delete(stem);
-    }
-  })();
-
-  audioBufferLoading.set(stem,task);
-  return task;
-}
-
-function allAudioStems(){
-  return [...new Set([
-    ...Object.values(KANA_AUDIO_FILES),
-    ...Object.values(YOON_AUDIO_FILES)
-  ].filter(Boolean))];
-}
-
-async function preloadAudioList(stems,{concurrency=AUDIO_PRELOAD_CONCURRENCY}={}){
-  const queue=[...new Set(stems.filter(Boolean))];
-  let cursor=0;
-  const worker=async()=>{
-    while(cursor<queue.length){
-      const i=cursor++;
-      await loadAudioBuffer(queue[i]);
-    }
-  };
-  await Promise.all(Array.from({length:Math.min(concurrency,queue.length)},worker));
-}
-
-function startEagerAudioPreload(){
-  if(eagerAudioPreloadStarted)return;
-  eagerAudioPreloadStarted=true;
-  // ページ描画を先に終わらせ、その直後から全67音を少数並列で準備する。
-  const run=()=>preloadAudioList(allAudioStems()).catch(()=>{});
-  if("requestIdleCallback" in window){
-    requestIdleCallback(run,{timeout:700});
-  }else{
-    setTimeout(run,0);
-  }
-}
-
-// ページを開いた時点で先読み開始。中国本土でも外部APIは使わず同一サーバーだけを見る。
-if(document.readyState==="loading"){
-  document.addEventListener("DOMContentLoaded",startEagerAudioPreload,{once:true});
-}else{
-  startEagerAudioPreload();
-}
+// 操作対象の音声は最優先で読み込み、残りは通信を圧迫しない小さな単位で
+// アイドル中に先読みする。初回タップまでにHTTPキャッシュと再生準備が
+// 済むため、2回目以降だけでなく最初の再生も始まりやすくなる。
+const ALL_AUDIO_STEMS = Object.freeze([
+  ...new Set([...Object.values(KANA_AUDIO_FILES),...Object.values(YOON_AUDIO_FILES)])
+]);
+let audioWarmupIndex=0;
+let audioWarmupTimer=0;
 
 function primeAudioStems(stems){
-  // いま必要な音は全体先読みとは別に最優先で要求する。
   for(const stem of new Set(stems.filter(Boolean))){
-    loadAudioBuffer(stem);
+    const audio=getCachedAudio(stem);
+    if(audio.readyState===0){
+      try{audio.load()}catch(_){}
+    }
   }
 }
 
 function primeStageAudio(key){
-  if(key==="yoon"){
-    primeAudioStems(Object.values(YOON_AUDIO_FILES));
-    return;
-  }
-  if(key==="all" || key==="test"){
-    primeAudioStems(Object.values(KANA_AUDIO_FILES));
-    return;
-  }
-  primeAudioStems((ROWS[key]||[]).map(kana=>KANA_AUDIO_FILES[kana]));
+  const rowKey=(key==="all" || key==="test") ? "a" : key;
+  primeAudioStems((ROWS[rowKey]||[]).map(kana=>KANA_AUDIO_FILES[kana]));
 }
+
+function warmRemainingAudio(){
+  audioWarmupTimer=0;
+  if(document.hidden)return;
+  // 一度に全ファイルを要求せず、4音ずつ間隔を空けて通常通信を優先する。
+  primeAudioStems(ALL_AUDIO_STEMS.slice(audioWarmupIndex,audioWarmupIndex+4));
+  audioWarmupIndex+=4;
+  if(audioWarmupIndex<ALL_AUDIO_STEMS.length){
+    audioWarmupTimer=setTimeout(warmRemainingAudio,180);
+  }
+}
+
+function scheduleAudioWarmup(){
+  if(audioWarmupTimer || audioWarmupIndex>=ALL_AUDIO_STEMS.length)return;
+  const connection=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+  if(connection?.saveData)return;
+  const start=()=>{audioWarmupTimer=setTimeout(warmRemainingAudio,0)};
+  if("requestIdleCallback" in window)requestIdleCallback(start,{timeout:800});
+  else audioWarmupTimer=setTimeout(warmRemainingAudio,500);
+}
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden && audioWarmupTimer){
+    clearTimeout(audioWarmupTimer);
+    audioWarmupTimer=0;
+  }else if(!document.hidden) scheduleAudioWarmup();
+});
+window.addEventListener("load",scheduleAudioWarmup,{once:true});
 
 function primeWordAudio(word){
   primeAudioStems(wordAudioUnits(word).map(stemForKana));
 }
 
 function stopKanaAudio(){
-  // 外部から停止された場合は、読み込み待ち中の古い再生要求も無効化する。
-  kanaPlaybackRequestId++;
-
-  if(activeKanaSource){
-    const source=activeKanaSource;
-    activeKanaSource=null;
-    try{source.onended=null}catch(_){}
-    try{source.stop(0)}catch(_){}
-    try{source.disconnect()}catch(_){}
-  }
-
+  if(activeKanaFinish)activeKanaFinish(false);
   if(activeKanaAudio){
-    const audio=activeKanaAudio;
+    try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
     activeKanaAudio=null;
-    try{audio.pause();audio.currentTime=0}catch(_){}
   }
-
-  if(activeKanaFinish){
-    const finish=activeKanaFinish;
-    activeKanaFinish=null;
-    try{finish(false)}catch(_){}
-  }
+  activeKanaFinish=null;
 }
 
-// AudioContext は最初の一度だけでなく、各ユーザー操作時にも復帰を試みる。
-// iOS / 一部Android WebViewで、途中で suspended に戻る場合への対策。
-function wakeAudioContext(){
-  const ctx=getWebAudioContext();
-  if(!ctx)return null;
-  if(ctx.state==="suspended"){
-    try{
-      const p=ctx.resume();
-      if(p&&typeof p.catch==="function")p.catch(()=>{});
-    }catch(_){}
-  }
-  return ctx;
-}
-
-["pointerdown","touchstart","mousedown","keydown"].forEach(type=>{
-  window.addEventListener(type,wakeAudioContext,{passive:true});
-});
-
-function playStemFallback(stem,requestId){
-  if(!stem || requestId!==kanaPlaybackRequestId)return Promise.resolve(false);
-
+function playStem(stem){
+  if(!stem) return Promise.resolve(false);
+  stopKanaAudio();
+  // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
   const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
-  try{a.currentTime=0}catch(_){}
-
+  try{ a.currentTime=0; }catch(_){}
   return new Promise(resolve=>{
     let finished=false;
-    let startTimer=0;
-    let endTimer=0;
-
     const finish=ok=>{
       if(finished)return;
       finished=true;
-      clearTimeout(startTimer);
-      clearTimeout(endTimer);
-      a.removeEventListener("ended",onEnded);
-      a.removeEventListener("error",onError);
+      clearTimeout(startWatchdog);
+      clearTimeout(endWatchdog);
+      a.removeEventListener("ended",ended);
+      a.removeEventListener("error",failed);
+      a.removeEventListener("canplay",start);
+      a.removeEventListener("loadeddata",start);
       a.removeEventListener("playing",onPlaying);
-      if(activeKanaAudio===a)activeKanaAudio=null;
-      if(activeKanaFinish===finish)activeKanaFinish=null;
+      if(activeKanaAudio===a){activeKanaAudio=null;activeKanaFinish=null}
       resolve(ok);
     };
-
-    const onEnded=()=>finish(true);
-    const onError=()=>finish(false);
+    const ended=()=>finish(true),failed=()=>finish(false);
+    let endWatchdog=0;
     const onPlaying=()=>{
-      clearTimeout(startTimer);
-      endTimer=setTimeout(()=>{
+      clearTimeout(startWatchdog);
+      // 再生開始後の上限は別管理にし、読み込み失敗を長時間待たない。
+      endWatchdog=setTimeout(()=>{
         try{a.pause()}catch(_){}
         finish(false);
       },AUDIO_END_TIMEOUT);
     };
-
     activeKanaFinish=finish;
-    a.addEventListener("ended",onEnded,{once:true});
-    a.addEventListener("error",onError,{once:true});
+    a.addEventListener("ended",ended,{once:true});
+    a.addEventListener("error",failed,{once:true});
     a.addEventListener("playing",onPlaying,{once:true});
-
-    startTimer=setTimeout(()=>{
+    // 読み込み開始に失敗した音を8秒待つと後続音も全部詰まるため、
+    // 短い期限で打ち切ってキューを次へ進める。
+    const startWatchdog=setTimeout(()=>{
       try{a.pause()}catch(_){}
       finish(false);
     },AUDIO_START_TIMEOUT);
-
-    let p;
-    try{p=a.play()}catch(_){p=null}
-    if(p&&typeof p.catch==="function")p.catch(()=>finish(false));
+    let attempts=0;
+    let starting=false;
+    const start=()=>{
+      if(finished||starting)return;
+      starting=true;
+      attempts++;
+      let played;
+      try{played=a.play()}catch(_){played=null}
+      if(played&&typeof played.catch==="function"){
+        played.catch(()=>{
+          starting=false;
+          if(attempts<3){
+            // load() は取得済みバイトまで捨てる実装があるため呼ばない。
+            setTimeout(start,80*attempts);
+          }else failed();
+        });
+      }else if(!played&&a.paused){
+        starting=false;
+        if(attempts<3){
+          setTimeout(start,80*attempts);
+        }else failed();
+      }
+    };
+    if(a.readyState<2){
+      a.addEventListener("canplay",start,{once:true});
+      a.addEventListener("loadeddata",start,{once:true});
+      try{a.load()}catch(_){}
+      // canplay が通知されないWebViewもあるので、play()自身にも読み込みを任せる。
+      start();
+    }else start();
   });
 }
 
-async function playStem(stem){
-  if(!stem)return false;
 
-  // 1. 前の音・前の読み込み待ちを完全に破棄
-  stopKanaAudio();
-  // 2. この再生専用の番号を発行
-  const requestId=++kanaPlaybackRequestId;
-
-  // ユーザー操作の直後に resume() を要求しておく。
-  const ctx=wakeAudioContext();
-
-  // 先読み済みなら即取得。未完了ならその音だけ待つ。
-  const buffer=await loadAudioBuffer(stem);
-
-  // 待っている間に別の文字が押されたなら、何も鳴らさない。
-  if(requestId!==kanaPlaybackRequestId)return false;
-
-  if(ctx && buffer){
-    return new Promise(resolve=>{
-      let finished=false;
-      const source=ctx.createBufferSource();
-      source.buffer=buffer;
-      source.connect(ctx.destination);
-      activeKanaSource=source;
-
-      const finish=ok=>{
-        if(finished)return;
-        finished=true;
-        clearTimeout(watchdog);
-        try{source.onended=null}catch(_){}
-        try{source.disconnect()}catch(_){}
-        if(activeKanaSource===source)activeKanaSource=null;
-        if(activeKanaFinish===finish)activeKanaFinish=null;
-        resolve(ok);
-      };
-
-      activeKanaFinish=finish;
-      source.onended=()=>finish(true);
-      const watchdog=setTimeout(()=>finish(false),
-        Math.min(AUDIO_END_TIMEOUT,Math.max(1000,buffer.duration*1000+700))
-      );
-
-      // start直前にも最新要求か確認。
-      if(requestId!==kanaPlaybackRequestId){
-        finish(false);
-        return;
-      }
-
-      try{
-        source.start(0);
-      }catch(_){
-        finish(false);
-      }
-    }).then(async ok=>{
-      if(ok)return true;
-      // 「別の音に切り替わった」場合は絶対に再再生しない。
-      if(requestId!==kanaPlaybackRequestId)return false;
-      return playStemFallback(stem,requestId);
-    });
-  }
-
-  // Web Audio が使えない環境だけ従来再生へ。
-  if(requestId!==kanaPlaybackRequestId)return false;
-  return playStemFallback(stem,requestId);
-}
 
 function playDroppedKana(ch){
   const stem = stemForKana(ch);
@@ -3432,65 +3292,42 @@ function stopWordAudioElements(){
 }
 function cancelWordAudio(){
   wordAudioRun++;
-  kanaPlaybackRequestId++;
   stopWordAudioElements();
   stopKanaAudio();
 }
 
 function resetQuestionAudio(){
+  // 問題をまたいだ再生・再試行を残さない。
   cancelWordAudio();
+
   for(const audio of kanaAudioCache.values()){
     try{audio.pause();audio.currentTime=0}catch(_){}
   }
+
 }
-
-async function playWordStem(stem,run){
-  if(!stem || run!==wordAudioRun)return false;
-  const buffer=await loadAudioBuffer(stem);
-  if(run!==wordAudioRun)return false;
-
-  if(buffer){
-    const ctx=getWebAudioContext();
-    if(ctx){
-      unlockWebAudio();
-      return new Promise(resolve=>{
-        let finished=false;
-        const source=ctx.createBufferSource();
-        source.buffer=buffer;
-        source.connect(ctx.destination);
-        const token={};
-        const finish=ok=>{
-          if(finished)return;
-          finished=true;
-          clearTimeout(timer);
-          source.onended=null;
-          try{source.disconnect()}catch(_){}
-          activeWordAudios.delete(token);
-          resolve(ok);
-        };
-        const cancel=()=>{try{source.stop()}catch(_){}finish(false)};
-        activeWordAudios.set(token,cancel);
-        source.onended=()=>finish(true);
-        // 録音末尾の無音だけを少し重ねる。
-        const advanceMs=Math.max(0,(buffer.duration-WORD_AUDIO_OVERLAP)*1000);
-        const timer=setTimeout(()=>finish(true),advanceMs);
-        try{source.start(0)}catch(_){finish(false)}
-      });
-    }
-  }
-
-  // WebAudio が使えない場合の互換再生。
+function playWordStem(stem,run){
+  if(!stem) return Promise.resolve(false);
   const a=createPlaybackAudio(stem);
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
-    let advanced=false,endTimer=0;
+    let advanced=false;
+    let endTimer=0;
     const advance=ok=>{if(advanced)return;advanced=true;clearTimeout(startTimer);clearTimeout(endTimer);resolve(ok)};
     const cleanup=()=>{a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("playing",onPlaying);a.removeEventListener("timeupdate",nearEnd);activeWordAudios.delete(a)};
     const cancel=()=>{try{a.pause();a.currentTime=0}catch(_){}cleanup();advance(false)};
     const ended=()=>{cleanup();advance(true)};
     const failed=()=>{cleanup();advance(false)};
-    const nearEnd=()=>{if(Number.isFinite(a.duration)&&a.duration-a.currentTime<=WORD_AUDIO_OVERLAP){a.removeEventListener("timeupdate",nearEnd);advance(true)}};
-    const onPlaying=()=>{clearTimeout(startTimer);endTimer=setTimeout(cancel,AUDIO_END_TIMEOUT)};
+    const nearEnd=()=>{
+      if(Number.isFinite(a.duration) && a.duration-a.currentTime<=WORD_AUDIO_OVERLAP){
+        // 録音末尾の無音だけを重ね、発音本体は欠けさせない。
+        a.removeEventListener("timeupdate",nearEnd);
+        advance(true);
+      }
+    };
+    const onPlaying=()=>{
+      clearTimeout(startTimer);
+      endTimer=setTimeout(cancel,AUDIO_END_TIMEOUT);
+    };
     const startTimer=setTimeout(cancel,AUDIO_START_TIMEOUT);
     activeWordAudios.set(a,cancel);
     a.addEventListener("ended",ended,{once:true});
@@ -3504,16 +3341,23 @@ async function playWordStem(stem,run){
       let played;
       try{played=a.play()}catch(_){played=null}
       if(played&&typeof played.then==="function"){
-        played.catch(()=>{if(playAttempts<3)setTimeout(startPlayback,80*playAttempts);else failed()});
+        played.catch(()=>{
+          if(playAttempts<3){
+            // 読み込み直後などの一時的な play() 失敗は短時間で再試行する。
+            setTimeout(startPlayback,80*playAttempts);
+          }else{
+            failed();
+          }
+        });
       }else if(!played&&a.paused){
-        if(playAttempts<3)setTimeout(startPlayback,80*playAttempts);else failed();
+        if(playAttempts<3)setTimeout(startPlayback,80*playAttempts);
+        else failed();
       }
     };
     startPlayback();
     if(run!==wordAudioRun)cancel();
   });
 }
-
 async function playWordAudio(word){
   stopWordAudioElements();
   stopKanaAudio();
