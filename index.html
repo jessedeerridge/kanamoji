@@ -4239,11 +4239,9 @@ function checkAnswer(){
       updateQuestionProgress();
       resultEl.textContent="○ せいかい！";
 
-      // 最後に選んだピースの発音が完了してから次へ進む。
+      // 次の問題へ移る時点で、前問の音声は待たずに破棄する。
       const thisIndex=qIndex;
-      const finalPieceAudio=lastPieceAudioPromise;
-      setTimeout(async()=>{
-        await finalPieceAudio;
+      setTimeout(()=>{
         if(stageKey!=="yoon" || yoonPhase!=="word" || qIndex!==thisIndex) return;
         goNext();
       },320);
@@ -4277,11 +4275,9 @@ function checkAnswer(){
     updateQuestionProgress();
     resultEl.textContent="○ せいかい！";
 
-    // 最後に選んだピースの発音が完了してから次へ進む。
+    // 次の問題へ移る時点で、前問の音声は待たずに破棄する。
     const thisIndex=qIndex;
-    const finalPieceAudio=lastPieceAudioPromise;
-    setTimeout(async()=>{
-      await finalPieceAudio;
+    setTimeout(()=>{
       if(qIndex!==thisIndex) return;
       goNext();
     },520);
@@ -5318,18 +5314,14 @@ function switchStage(key){
 }
 
 
-async function goNext(){
+function goNext(){
   if(questionTransitionPending)return;
   questionTransitionPending=true;
 
-  // 最後に操作したピースの音を最後まで鳴らしてから、次の問題へ進む。
-  // 待機中に lastPieceAudioPromise が差し替わっても、この時点の音だけを待つ。
-  const pieceAudio=lastPieceAudioPromise;
-  try{await pieceAudio}catch(_){}
-
-  // 音が完了した後で前問の再生状態を破棄し、新しい問題の読み上げを始める。
+  // 前問の音声完了を待たない。遷移開始時に再生・自動再生・待機Promiseを
+  // まとめて破棄し、音声キューを次の問題へ一切持ち越さない。
   clearYoonAutoPlayTimer();
-  cancelWordAudio();
+  resetQuestionAudio();
   lastPieceAudioPromise=Promise.resolve(false);
   try{
     if(stageKey==="yoon" && yoonPhase==="listen"){
