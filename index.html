@@ -130,6 +130,26 @@ body{
   letter-spacing:2px;
 }
 .test-hearts[hidden]{display:none}
+.test-timer{
+  position:absolute;
+  left:16px;
+  bottom:12px;
+  z-index:4;
+  min-width:3.2em;
+  padding:6px 10px;
+  border:2px solid var(--ink);
+  border-radius:10px;
+  background:var(--yellow);
+  font-size:18px;
+  font-weight:900;
+  text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+.test-timer[hidden]{display:none}
+.test-fail-overlay{position:fixed;inset:0;z-index:150;display:none;place-items:center;background:rgba(0,0,0,.48);padding:20px}
+.test-fail-overlay.open{display:grid}
+.test-fail-panel{width:min(360px,100%);padding:30px 24px;text-align:center;border:3px solid var(--ink);border-radius:20px;background:#fffdf8;box-shadow:7px 7px 0 var(--shadow)}
+.test-fail-panel h2{margin:0 0 22px;font-size:34px}
 .game-controls-right{
   display:flex;
   gap:10px;
@@ -173,6 +193,7 @@ button,.title-practice-badge{
 }
 
 .game{
+  position:relative;
   background:var(--panel);
   border:4px solid var(--ink);
   border-radius:18px;
@@ -2365,6 +2386,13 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   </div>
 </div>
 
+<div class="test-fail-overlay" id="testFailOverlay" aria-hidden="true">
+  <div class="test-fail-panel" role="dialog" aria-modal="true" aria-labelledby="testFailTitle">
+    <h2 id="testFailTitle">残念！</h2>
+    <button class="next-btn" id="testFailHome" type="button">ホームへ</button>
+  </div>
+</div>
+
 <div class="game-screen" id="gameScreen">
 <div class="wrap">
   <div class="game-controls">
@@ -2384,6 +2412,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   </div>
 
   <div class="game">
+    <div class="test-timer" id="testTimer" hidden>10</div>
     <div class="top">
       <div class="progress"><span id="stageName">あ行</span><span class="progress-count"><span id="qNum">20</span>/<span id="qTotal">20</span></span></div>
     </div>
@@ -2899,7 +2928,10 @@ let selectedTile=null;
 let locked=false;
 let shuffleMode=false;
 let testLives=3;
+let testTimerId=0;
+let testTimerRun=0;
 let correctSet=new Set();
+let missedQuestions=new Set();
 let reviewQueue=[];
 let reviewing=false;
 let kanaScriptMode="hiragana";
@@ -2928,10 +2960,52 @@ function updateTestHearts(){
   hearts.setAttribute("aria-label",`のこり${testLives}`);
 }
 
+function stopTestTimer(){
+  testTimerRun++;
+  if(testTimerId){clearInterval(testTimerId);testTimerId=0}
+  const timer=document.getElementById("testTimer");
+  if(timer)timer.hidden=true;
+}
+
+function showTestFailed(){
+  stopTestTimer();
+  resetQuestionAudio();
+  locked=true;
+  const overlay=document.getElementById("testFailOverlay");
+  overlay.classList.add("open");
+  overlay.setAttribute("aria-hidden","false");
+}
+
 function loseTestHeart(){
-  if(!shuffleMode || testLives<=0)return;
-  testLives--;
+  if(!shuffleMode)return true;
+  if(testLives>0)testLives--;
   updateTestHearts();
+  if(testLives===0){showTestFailed();return false}
+  return true;
+}
+
+function startTestTimer(){
+  stopTestTimer();
+  if(!shuffleMode)return;
+  const timer=document.getElementById("testTimer");
+  if(!timer)return;
+  const run=++testTimerRun;
+  const deadline=performance.now()+10000;
+  timer.hidden=false;
+  timer.textContent="10";
+  const tick=()=>{
+    if(run!==testTimerRun)return;
+    const left=Math.max(0,Math.ceil((deadline-performance.now())/1000));
+    timer.textContent=String(left);
+    if(left>0)return;
+    stopTestTimer();
+    locked=true;
+    missedQuestions.add(qIndex);
+    if(!loseTestHeart())return;
+    locked=false;
+    startTestTimer();
+  };
+  testTimerId=setInterval(tick,200);
 }
 let katakanaMatchPhase=1;
 let katakanaStepIndex=0;
@@ -3617,6 +3691,7 @@ function startYoonPractice(){
 
   selectedQuestions=yoonListenQuestions;
   correctSet=new Set();
+  missedQuestions=new Set();
   reviewQueue=[];
   reviewing=false;
   qIndex=0;
@@ -3633,6 +3708,7 @@ function startYoonWordPhase(){
   yoonPhase="word";
   selectedQuestions=yoonWordQuestions;
   correctSet=new Set();
+  missedQuestions=new Set();
   reviewQueue=[];
   reviewing=false;
   qIndex=0;
@@ -3658,7 +3734,7 @@ function renderQuestion(){
     return;
   }
 
-  viewingSolvedQuestion=correctSet.has(qIndex);
+  viewingSolvedQuestion=!reviewing && correctSet.has(qIndex);
 
   // listen画面で変えたclassを通常へ戻す
   if(slotsEl) slotsEl.className="slots";
@@ -3732,6 +3808,7 @@ function renderQuestion(){
 
     // 拗音の単語問題だけ、表示した問題語を最初に一度だけ読む。
     playQuestionWordOnce(word);
+    startTestTimer();
     return;
   }
 
@@ -3770,6 +3847,7 @@ function renderQuestion(){
 
   renderBoard();
   boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
+  startTestTimer();
 
 }
 
@@ -3933,6 +4011,7 @@ function renderYoonListeningQuestion(){
   resultEl.textContent="";
   slotsEl.className="slots yoon-listen-slots";
   slotsEl.innerHTML="";
+  startTestTimer();
 
   // 「もういちど」は絵枠の中に表示
   const picture=emojiEl.closest(".picture");
@@ -3972,6 +4051,7 @@ function renderYoonListeningQuestion(){
       if(locked) return;
 
       clearYoonAutoPlayTimer();
+      stopTestTimer();
       locked=true;
       stopKanaAudio();
 
@@ -3980,6 +4060,7 @@ function renderYoonListeningQuestion(){
       if(pieceText===q.target){
         // 正解を押したときは、そのピース音声を再生しない
         piece.classList.add("yoon-correct");
+        if(reviewing)missedQuestions.delete(qIndex);
         resultEl.textContent="○ せいかい！";
 
         // 少しだけ表示してから次へ
@@ -3991,11 +4072,14 @@ function renderYoonListeningQuestion(){
           qIndex++;
           locked=false;
           renderQuestion();
+        }else if(missedQuestions.size){
+          startReviewRound();
         }else{
           startYoonWordPhase();
         }
       }else{
-        loseTestHeart();
+        missedQuestions.add(qIndex);
+        if(!loseTestHeart())return;
         // 間違い：選んだピースは鳴らさず、少し置いて正解音だけを示す。
         piece.classList.add("correct-shake");
         resultEl.textContent="× もういちど";
@@ -4014,6 +4098,7 @@ function renderYoonListeningQuestion(){
         piece.classList.remove("correct-shake");
         resultEl.textContent="";
         locked=false;
+        startTestTimer();
       }
     });
 
@@ -4266,6 +4351,7 @@ function checkAnswer(){
   if(stageKey==="yoon"){
     const slot=document.querySelector(".slot.yoon-slot");
     if(!slot || !slot.dataset.kanaValue) return;
+    stopTestTimer();
 
     const made=normalizeKanaString(slot.dataset.kanaValue);
     const target=normalizeKanaString(question().yoon);
@@ -4273,6 +4359,7 @@ function checkAnswer(){
     if(made===target){
       locked=true;
       correctSet.add(qIndex);
+      if(reviewing)missedQuestions.delete(qIndex);
       updateQuestionProgress();
       resultEl.textContent="○ せいかい！";
 
@@ -4285,7 +4372,8 @@ function checkAnswer(){
         goNext();
       },320);
     }else{
-      loseTestHeart();
+      missedQuestions.add(qIndex);
+      if(!loseTestHeart())return;
       locked=true;
       resultEl.textContent="× もういちど";
       slot.classList.add("correct-shake");
@@ -4295,23 +4383,51 @@ function checkAnswer(){
         clearSlotKana(slot);
         resultEl.textContent="";
         locked=false;
+        startTestTimer();
       },650);
     }
     return;
   }
 
   // ===== 通常問題 =====
-  if(slots.some(s=>!s.textContent))return;
+  const answerChars=[...normalizeKanaString(question().w)];
+  const wrongSlots=slots.filter((slot,index)=>{
+    const value=normalizeKanaString(slot.dataset.kanaValue || slot.textContent || "");
+    return value && value!==answerChars[index];
+  });
+
+  // 全枠を埋める前でも、違う文字を置いた瞬間に不正解とする。
+  if(wrongSlots.length){
+    stopTestTimer();
+    missedQuestions.add(qIndex);
+    if(!loseTestHeart())return;
+    locked=true;
+    resultEl.textContent="× もういちど";
+    wrongSlots.forEach(slot=>slot.classList.add("correct-shake"));
+    setTimeout(()=>{
+      wrongSlots.forEach(slot=>{
+        slot.classList.remove("correct-shake");
+        if(slot.dataset.prefilled!=="1")clearSlotKana(slot);
+      });
+      resultEl.textContent="";
+      locked=false;
+      startTestTimer();
+    },650);
+    return;
+  }
+
+  if(slots.some(slot=>!slot.dataset.kanaValue && !slot.textContent))return;
+  stopTestTimer();
 
   const made=normalizeKanaString(
-    slots.map(s=>s.dataset.kanaValue || s.textContent).join("")
+    slots.map(slot=>slot.dataset.kanaValue || slot.textContent).join("")
   );
-
   const targetWord=normalizeKanaString(question().w);
 
   if(made===targetWord){
     locked=true;
     correctSet.add(qIndex);
+    if(reviewing)missedQuestions.delete(qIndex);
     updateQuestionProgress();
     resultEl.textContent="○ せいかい！";
 
@@ -4323,39 +4439,12 @@ function checkAnswer(){
       if(qIndex!==thisIndex) return;
       goNext();
     },520);
-  }else{
-    loseTestHeart();
-    locked=true;
-    resultEl.textContent="× もういちど";
-
-    const answerChars=[...normalizeKanaString(question().w)];
-
-    slots.forEach((s,i)=>{
-      const current=normalizeKanaString(s.dataset.kanaValue || s.textContent || "");
-      if(current!==answerChars[i]){
-        s.classList.add("correct-shake");
-      }
-    });
-
-    setTimeout(()=>{
-      slots.forEach(s=>{
-        s.classList.remove("correct-shake");
-        if(s.dataset.prefilled!=="1"){
-          clearSlotKana(s);
-        }
-      });
-      resultEl.textContent="";
-      locked=false;
-    },1000);
   }
 }
 
 function startReviewRound(){
   reviewing=true;
-  reviewQueue=[];
-  for(let i=0;i<activeQuestions().length;i++){
-    if(!correctSet.has(i)) reviewQueue.push(i);
-  }
+  reviewQueue=[...missedQuestions].sort((a,b)=>a-b);
 
   if(!reviewQueue.length){
     showPass();
@@ -5359,6 +5448,7 @@ function switchStage(key){
 
 function goNext(){
   if(questionTransitionPending)return;
+  stopTestTimer();
   questionTransitionPending=true;
 
   // 前問の音声完了を待たない。遷移開始時に再生・自動再生・待機Promiseを
@@ -5368,9 +5458,20 @@ function goNext(){
   lastPieceAudioPromise=Promise.resolve(false);
   try{
     if(stageKey==="yoon" && yoonPhase==="listen"){
-      if(qIndex<activeQuestions().length-1){
+      if(reviewing){
+        if(reviewQueue.length){
+          qIndex=reviewQueue.shift();
+          renderQuestion();
+        }else if(missedQuestions.size===0){
+          startYoonWordPhase();
+        }else{
+          startReviewRound();
+        }
+      }else if(qIndex<activeQuestions().length-1){
         qIndex++;
         renderQuestion();
+      }else if(missedQuestions.size){
+        startReviewRound();
       }else{
         startYoonWordPhase();
       }
@@ -5382,11 +5483,8 @@ function goNext(){
         qIndex=reviewQueue.shift();
         renderQuestion();
       }else{
-        if(correctSet.size===activeQuestions().length){
-          showPass();
-        }else{
-          startReviewRound();
-        }
+        if(missedQuestions.size===0)showPass();
+        else startReviewRound();
       }
       return;
     }
@@ -5395,11 +5493,8 @@ function goNext(){
       qIndex++;
       renderQuestion();
     }else{
-      if(correctSet.size===activeQuestions().length){
-        showPass();
-      }else{
-        startReviewRound();
-      }
+      if(missedQuestions.size===0)showPass();
+      else startReviewRound();
     }
   }finally{
     questionTransitionPending=false;
@@ -5460,6 +5555,7 @@ async function startStage(key,{forceTest=false}={}){
   updateStageTestButton();
 
   correctSet=new Set();
+  missedQuestions=new Set();
   reviewQueue=[];
   reviewing=false;
   selectedQuestions=[];
@@ -5541,6 +5637,7 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
 });
 
 bindTap(document.getElementById("titleBtn"),()=>{
+  stopTestTimer();
   clearYoonAutoPlayTimer();
   cancelWordAudio();
   gameScreen.classList.remove("active");
@@ -5552,6 +5649,12 @@ bindTap(document.getElementById("titleBtn"),()=>{
 });
 
 bindTap(document.getElementById("stageTestBtn"),startCurrentStageTest);
+bindTap(document.getElementById("testFailHome"),()=>{
+  const overlay=document.getElementById("testFailOverlay");
+  overlay.classList.remove("open");
+  overlay.setAttribute("aria-hidden","true");
+  document.getElementById("titleBtn").click();
+});
 window.addEventListener("kana-practice-progress",updateStageTestButton);
 
 bindTap(document.getElementById("backBtn"),()=>{
