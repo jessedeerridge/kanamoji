@@ -1892,13 +1892,19 @@ body[data-kana-mode="katakana"] .yoon-stage-btn{
   background:#fff !important;
   box-shadow:2px 2px 0 var(--shadow) !important;
 
-  display:grid !important;
-  place-items:center !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  position:relative;
+  overflow:hidden;
+  background-image:none !important;
   font-family:var(--jp-font);
   font-size:22px;
   font-weight:900;
-  line-height:1;
-  color:inherit;
+  line-height:1.2;
+  text-align:center;
+  text-indent:0;
+  color:var(--ink);
 
   cursor:pointer;
   white-space:nowrap;
@@ -3285,6 +3291,15 @@ function playKanaAudio(kana){
   if(!stem) return Promise.resolve(false);
   return playStem(stem);
 }
+
+// 回答枠は問題ごとに作り直されるため、documentへの委譲で常に有効にする。
+document.addEventListener("click",event=>{
+  const slot=event.target.closest?.("#slots .slot");
+  if(!slot || stageKey==="yoon")return;
+  const kana=slot.dataset.kanaValue;
+  if(kana)playKanaAudio(kana);
+});
+
 function playYoonPieceAudio(pieceText){
   return playStem(stemForKana(pieceText));
 }
@@ -3314,6 +3329,16 @@ function resetQuestionAudio(){
     try{audio.pause();audio.currentTime=0}catch(_){}
   }
 
+}
+
+async function playQuestionWordOnce(word){
+  // 問題ごとの世代番号を保持し、画面が変わったら残りの文字を再生しない。
+  const run=++wordAudioRun;
+  const stems=wordAudioUnits(word).map(stemForKana).filter(Boolean);
+  for(const stem of stems){
+    if(run!==wordAudioRun)return;
+    await playStem(stem);
+  }
 }
 
 
@@ -3694,6 +3719,8 @@ function renderQuestion(){
     renderYoonBoard();
     boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
+    // 拗音の単語問題だけ、表示した問題語を最初に一度だけ読む。
+    playQuestionWordOnce(word);
     return;
   }
 
@@ -3887,8 +3914,8 @@ function renderYoonListeningQuestion(){
   if(!q) return;
 
   stageNameEl.textContent="拗音練習";
-  setQuestionProgressVisible(true);
-  updateQuestionProgress();
+  // 3文字から音を選ぶ画面では進捗の x/y 表示を出さない。
+  setQuestionProgressVisible(false);
 
   zhEl.textContent="";
   emojiEl.textContent="";
@@ -4511,6 +4538,9 @@ function startQuizAfterMatch(){
 }
 
 function renderKatakanaAllStep(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -4655,6 +4685,9 @@ function renderKatakanaAllStep(){
 
 
 function renderHiraganaAllStep(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -4800,6 +4833,9 @@ function renderHiraganaAllStep(){
 }
 
 function renderHiraganaMatch(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -5028,6 +5064,9 @@ function renderHiraganaMatch(){
 }
 
 function renderKatakanaMatch(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
