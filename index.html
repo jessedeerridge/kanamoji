@@ -135,20 +135,24 @@ body{
   left:16px;
   bottom:12px;
   z-index:4;
-  min-width:3.2em;
-  padding:6px 10px;
+  width:48px;
+  height:48px;
+  padding:0;
   border:2px solid var(--ink);
-  border-radius:10px;
+  border-radius:50%;
   background:var(--yellow);
+  display:grid;
+  place-items:center;
   font-size:18px;
   font-weight:900;
+  line-height:1;
   text-align:center;
   font-variant-numeric:tabular-nums;
 }
 .test-timer[hidden]{display:none}
-.test-fail-overlay{position:fixed;inset:0;z-index:150;display:none;place-items:center;background:rgba(0,0,0,.48);padding:20px}
+.test-fail-overlay{position:fixed;inset:0;z-index:150;display:none;place-items:center;padding:20px;pointer-events:none}
 .test-fail-overlay.open{display:grid}
-.test-fail-panel{width:min(360px,100%);padding:30px 24px;text-align:center;border:3px solid var(--ink);border-radius:20px;background:#fffdf8;box-shadow:7px 7px 0 var(--shadow)}
+.test-fail-panel{width:min(360px,100%);padding:30px 24px;text-align:center;border:3px solid var(--ink);border-radius:20px;background:#fffdf8;box-shadow:7px 7px 0 var(--shadow);pointer-events:none}
 .test-fail-panel h2{margin:0 0 22px;font-size:34px}
 .game-controls-right{
   display:flex;
@@ -2387,9 +2391,8 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 </div>
 
 <div class="test-fail-overlay" id="testFailOverlay" aria-hidden="true">
-  <div class="test-fail-panel" role="dialog" aria-modal="true" aria-labelledby="testFailTitle">
+  <div class="test-fail-panel" role="status" aria-live="assertive">
     <h2 id="testFailTitle">残念！</h2>
-    <button class="next-btn" id="testFailHome" type="button">ホームへ</button>
   </div>
 </div>
 
@@ -4405,6 +4408,11 @@ function checkAnswer(){
     resultEl.textContent="× もういちど";
     wrongSlots.forEach(slot=>slot.classList.add("correct-shake"));
     setTimeout(()=>{
+      if(shuffleMode){
+        // テストでは全回答を消し、候補ピースも新しい順番で作り直す。
+        renderQuestion();
+        return;
+      }
       wrongSlots.forEach(slot=>{
         slot.classList.remove("correct-shake");
         if(slot.dataset.prefilled!=="1")clearSlotKana(slot);
@@ -4754,9 +4762,7 @@ function renderKatakanaAllStep(){
 
       katakanaStepIndex++;
 
-      setTimeout(()=>{
-        renderKatakanaAllStep();
-      },180);
+      scheduleMatchTransition(renderKatakanaAllStep);
     }else{
       targetSlot.classList.remove("wrong");
       void targetSlot.offsetWidth;
@@ -4901,9 +4907,7 @@ function renderHiraganaAllStep(){
 
       hiraganaStepIndex++;
 
-      setTimeout(()=>{
-        renderHiraganaAllStep();
-      },180);
+      scheduleMatchTransition(renderHiraganaAllStep);
 
     }else{
       targetSlot.classList.remove("wrong");
@@ -4997,7 +5001,7 @@ function renderHiraganaMatch(){
 
         if(completed===actual.length){
           if(statusEl) statusEl.innerHTML="<span>OK！</span>";
-          setTimeout(()=>{
+          scheduleMatchTransition(()=>{
             hiraganaMatchPhase=2;
             hiraganaStepIndex=0;
             hiraganaStepRound=0;
@@ -5129,9 +5133,7 @@ function renderHiraganaMatch(){
 
       hiraganaStepIndex++;
 
-      setTimeout(()=>{
-        renderHiraganaMatch();
-      },180);
+      scheduleMatchTransition(renderHiraganaMatch);
 
     }else{
       targetSlot.classList.remove("wrong");
@@ -5224,7 +5226,7 @@ function renderKatakanaMatch(){
 
         if(completed===actual.length){
           if(statusEl) statusEl.innerHTML="<span>OK！</span>";
-          setTimeout(()=>{
+          scheduleMatchTransition(()=>{
             katakanaMatchPhase=2;
             katakanaStepIndex=0;
             katakanaStepRound=0;
@@ -5337,7 +5339,7 @@ function renderKatakanaMatch(){
       // 1文字ごとにはOKを出さない
       katakanaStepIndex += 1;
 
-      setTimeout(()=>{
+      scheduleMatchTransition(()=>{
         if(katakanaStepIndex >= validSteps.length){
           katakanaStepRound++;
 
@@ -5400,14 +5402,26 @@ function renderKatakanaMatch(){
   setupMatchInput(pieces,slots,finishOne);
 }
 
+// マッチ画面は、選んだ文字の発音が完了するまで次の文字へ描き替えない。
+let matchTransitionPending=false;
+function scheduleMatchTransition(callback,minimumDelay=180){
+  if(matchTransitionPending)return;
+  matchTransitionPending=true;
+  const audio=lastPieceAudioPromise;
+  Promise.all([audio.catch(()=>false),waitAudio(minimumDelay)]).then(()=>{
+    matchTransitionPending=false;
+    callback();
+  });
+}
+
 // マッチゲーム共通：クリック／タップ／ドラッグを Pointer Events で統一
 function setupMatchInput(pieces,slots,finishOne){
   pieces.forEach(piece=>{
     const putIntoCurrentSlot=()=>{
+      if(matchTransitionPending || piece.classList.contains("used"))return;
       // マッチ用カードもクリック／タップで発音
-      playKanaAudio(piece.dataset.kana);
+      lastPieceAudioPromise=playKanaAudio(piece.dataset.kana);
 
-      if(piece.classList.contains("used")) return;
 
       // まだ正解していない一番左（段階式では現在）の枠へ入れる
       const slot=slots.find(s=>s.dataset.done!=="1");
@@ -5419,7 +5433,7 @@ function setupMatchInput(pieces,slots,finishOne){
     bindPointerDrag({
       element:piece,
       dropSelector:".kana-match-slot",
-      canStart:()=>!piece.classList.contains("used"),
+      canStart:()=>!matchTransitionPending && !piece.classList.contains("used"),
 
       // クリック／タップ
       onTap:putIntoCurrentSlot,
@@ -5427,7 +5441,8 @@ function setupMatchInput(pieces,slots,finishOne){
       // ドラッグ
       onDrop:slot=>{
         if(slot.dataset.done==="1") return;
-        playDroppedKana(piece.dataset.kana || piece.dataset.char || piece.textContent.trim());
+        if(matchTransitionPending)return;
+        lastPieceAudioPromise=playDroppedKana(piece.dataset.kana || piece.dataset.char || piece.textContent.trim());
         finishOne(slot,piece);
       }
     });
@@ -5637,6 +5652,9 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
 });
 
 bindTap(document.getElementById("titleBtn"),()=>{
+  const failOverlay=document.getElementById("testFailOverlay");
+  failOverlay.classList.remove("open");
+  failOverlay.setAttribute("aria-hidden","true");
   stopTestTimer();
   clearYoonAutoPlayTimer();
   cancelWordAudio();
@@ -5649,12 +5667,6 @@ bindTap(document.getElementById("titleBtn"),()=>{
 });
 
 bindTap(document.getElementById("stageTestBtn"),startCurrentStageTest);
-bindTap(document.getElementById("testFailHome"),()=>{
-  const overlay=document.getElementById("testFailOverlay");
-  overlay.classList.remove("open");
-  overlay.setAttribute("aria-hidden","true");
-  document.getElementById("titleBtn").click();
-});
 window.addEventListener("kana-practice-progress",updateStageTestButton);
 
 bindTap(document.getElementById("backBtn"),()=>{
