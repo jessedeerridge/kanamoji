@@ -3123,8 +3123,14 @@ function createPlaybackAudio(stem){
   return audio;
 }
 
-// 音声は再生要求時に直接読み込む。バックグラウンドの取得キューは、
-// 遅いリクエストが通信枠を占有して後続の再生まで止めるため使用しない。
+// 操作対象の音声は最優先で読み込み、残りは通信を圧迫しない小さな単位で
+// アイドル中に先読みする。初回タップまでにHTTPキャッシュと再生準備が
+// 済むため、2回目以降だけでなく最初の再生も始まりやすくなる。
+const ALL_AUDIO_STEMS = Object.freeze([
+  ...new Set([...Object.values(KANA_AUDIO_FILES),...Object.values(YOON_AUDIO_FILES)])
+]);
+let audioWarmupIndex=0;
+let audioWarmupTimer=0;
 
 function primeAudioStems(stems){
   for(const stem of new Set(stems.filter(Boolean))){
@@ -3139,6 +3145,34 @@ function primeStageAudio(key){
   const rowKey=(key==="all" || key==="test") ? "a" : key;
   primeAudioStems((ROWS[rowKey]||[]).map(kana=>KANA_AUDIO_FILES[kana]));
 }
+
+function warmRemainingAudio(){
+  audioWarmupTimer=0;
+  if(document.hidden)return;
+  // 一度に全ファイルを要求せず、4音ずつ間隔を空けて通常通信を優先する。
+  primeAudioStems(ALL_AUDIO_STEMS.slice(audioWarmupIndex,audioWarmupIndex+4));
+  audioWarmupIndex+=4;
+  if(audioWarmupIndex<ALL_AUDIO_STEMS.length){
+    audioWarmupTimer=setTimeout(warmRemainingAudio,180);
+  }
+}
+
+function scheduleAudioWarmup(){
+  if(audioWarmupTimer || audioWarmupIndex>=ALL_AUDIO_STEMS.length)return;
+  const connection=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+  if(connection?.saveData)return;
+  const start=()=>{audioWarmupTimer=setTimeout(warmRemainingAudio,0)};
+  if("requestIdleCallback" in window)requestIdleCallback(start,{timeout:800});
+  else audioWarmupTimer=setTimeout(warmRemainingAudio,500);
+}
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden && audioWarmupTimer){
+    clearTimeout(audioWarmupTimer);
+    audioWarmupTimer=0;
+  }else if(!document.hidden) scheduleAudioWarmup();
+});
+window.addEventListener("load",scheduleAudioWarmup,{once:true});
 
 function primeWordAudio(word){
   primeAudioStems(wordAudioUnits(word).map(stemForKana));
