@@ -1892,13 +1892,19 @@ body[data-kana-mode="katakana"] .yoon-stage-btn{
   background:#fff !important;
   box-shadow:2px 2px 0 var(--shadow) !important;
 
-  display:grid !important;
-  place-items:center !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  position:relative;
+  overflow:hidden;
+  background-image:none !important;
   font-family:var(--jp-font);
   font-size:22px;
   font-weight:900;
-  line-height:1;
-  color:inherit;
+  line-height:1.2;
+  text-align:center;
+  text-indent:0;
+  color:var(--ink);
 
   cursor:pointer;
   white-space:nowrap;
@@ -3316,6 +3322,16 @@ function resetQuestionAudio(){
 
 }
 
+async function playQuestionWordOnce(word){
+  // 問題ごとの世代番号を保持し、画面が変わったら残りの文字を再生しない。
+  const run=++wordAudioRun;
+  const stems=wordAudioUnits(word).map(stemForKana).filter(Boolean);
+  for(const stem of stems){
+    if(run!==wordAudioRun)return;
+    await playStem(stem);
+  }
+}
+
 
 const APPROXIMATE_AUDIO_KANA = {
   "ぎゃ":"きゃ","ぎゅ":"きゅ","ぎょ":"きょ",
@@ -3694,6 +3710,8 @@ function renderQuestion(){
     renderYoonBoard();
     boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
+    // 拗音の単語問題だけ、表示した問題語を最初に一度だけ読む。
+    playQuestionWordOnce(word);
     return;
   }
 
