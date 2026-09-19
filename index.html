@@ -2931,6 +2931,7 @@ let testLives=3;
 let testTimerId=0;
 let testTimerRun=0;
 let correctSet=new Set();
+let missedQuestions=new Set();
 let reviewQueue=[];
 let reviewing=false;
 let kanaScriptMode="hiragana";
@@ -2999,8 +3000,10 @@ function startTestTimer(){
     if(left>0)return;
     stopTestTimer();
     locked=true;
+    missedQuestions.add(qIndex);
     if(!loseTestHeart())return;
-    goNext();
+    locked=false;
+    startTestTimer();
   };
   testTimerId=setInterval(tick,200);
 }
@@ -3688,6 +3691,7 @@ function startYoonPractice(){
 
   selectedQuestions=yoonListenQuestions;
   correctSet=new Set();
+  missedQuestions=new Set();
   reviewQueue=[];
   reviewing=false;
   qIndex=0;
@@ -3704,6 +3708,7 @@ function startYoonWordPhase(){
   yoonPhase="word";
   selectedQuestions=yoonWordQuestions;
   correctSet=new Set();
+  missedQuestions=new Set();
   reviewQueue=[];
   reviewing=false;
   qIndex=0;
@@ -3729,7 +3734,7 @@ function renderQuestion(){
     return;
   }
 
-  viewingSolvedQuestion=correctSet.has(qIndex);
+  viewingSolvedQuestion=!reviewing && correctSet.has(qIndex);
 
   // listen画面で変えたclassを通常へ戻す
   if(slotsEl) slotsEl.className="slots";
@@ -4055,6 +4060,7 @@ function renderYoonListeningQuestion(){
       if(pieceText===q.target){
         // 正解を押したときは、そのピース音声を再生しない
         piece.classList.add("yoon-correct");
+        if(reviewing)missedQuestions.delete(qIndex);
         resultEl.textContent="○ せいかい！";
 
         // 少しだけ表示してから次へ
@@ -4066,10 +4072,13 @@ function renderYoonListeningQuestion(){
           qIndex++;
           locked=false;
           renderQuestion();
+        }else if(missedQuestions.size){
+          startReviewRound();
         }else{
           startYoonWordPhase();
         }
       }else{
+        missedQuestions.add(qIndex);
         if(!loseTestHeart())return;
         // 間違い：選んだピースは鳴らさず、少し置いて正解音だけを示す。
         piece.classList.add("correct-shake");
@@ -4088,8 +4097,8 @@ function renderYoonListeningQuestion(){
 
         piece.classList.remove("correct-shake");
         resultEl.textContent="";
-        if(shuffleMode){goNext();return}
         locked=false;
+        startTestTimer();
       }
     });
 
@@ -4350,6 +4359,7 @@ function checkAnswer(){
     if(made===target){
       locked=true;
       correctSet.add(qIndex);
+      if(reviewing)missedQuestions.delete(qIndex);
       updateQuestionProgress();
       resultEl.textContent="○ せいかい！";
 
@@ -4362,6 +4372,7 @@ function checkAnswer(){
         goNext();
       },320);
     }else{
+      missedQuestions.add(qIndex);
       if(!loseTestHeart())return;
       locked=true;
       resultEl.textContent="× もういちど";
@@ -4371,26 +4382,52 @@ function checkAnswer(){
         slot.classList.remove("correct-shake");
         clearSlotKana(slot);
         resultEl.textContent="";
-        if(shuffleMode){goNext();return}
         locked=false;
+        startTestTimer();
       },650);
     }
     return;
   }
 
   // ===== 通常問題 =====
-  if(slots.some(s=>!s.textContent))return;
+  const answerChars=[...normalizeKanaString(question().w)];
+  const wrongSlots=slots.filter((slot,index)=>{
+    const value=normalizeKanaString(slot.dataset.kanaValue || slot.textContent || "");
+    return value && value!==answerChars[index];
+  });
+
+  // 全枠を埋める前でも、違う文字を置いた瞬間に不正解とする。
+  if(wrongSlots.length){
+    stopTestTimer();
+    missedQuestions.add(qIndex);
+    if(!loseTestHeart())return;
+    locked=true;
+    resultEl.textContent="× もういちど";
+    wrongSlots.forEach(slot=>slot.classList.add("correct-shake"));
+    setTimeout(()=>{
+      wrongSlots.forEach(slot=>{
+        slot.classList.remove("correct-shake");
+        if(slot.dataset.prefilled!=="1")clearSlotKana(slot);
+      });
+      resultEl.textContent="";
+      locked=false;
+      startTestTimer();
+    },650);
+    return;
+  }
+
+  if(slots.some(slot=>!slot.dataset.kanaValue && !slot.textContent))return;
   stopTestTimer();
 
   const made=normalizeKanaString(
-    slots.map(s=>s.dataset.kanaValue || s.textContent).join("")
+    slots.map(slot=>slot.dataset.kanaValue || slot.textContent).join("")
   );
-
   const targetWord=normalizeKanaString(question().w);
 
   if(made===targetWord){
     locked=true;
     correctSet.add(qIndex);
+    if(reviewing)missedQuestions.delete(qIndex);
     updateQuestionProgress();
     resultEl.textContent="○ せいかい！";
 
@@ -4402,40 +4439,12 @@ function checkAnswer(){
       if(qIndex!==thisIndex) return;
       goNext();
     },520);
-  }else{
-    if(!loseTestHeart())return;
-    locked=true;
-    resultEl.textContent="× もういちど";
-
-    const answerChars=[...normalizeKanaString(question().w)];
-
-    slots.forEach((s,i)=>{
-      const current=normalizeKanaString(s.dataset.kanaValue || s.textContent || "");
-      if(current!==answerChars[i]){
-        s.classList.add("correct-shake");
-      }
-    });
-
-    setTimeout(()=>{
-      slots.forEach(s=>{
-        s.classList.remove("correct-shake");
-        if(s.dataset.prefilled!=="1"){
-          clearSlotKana(s);
-        }
-      });
-      resultEl.textContent="";
-      if(shuffleMode){goNext();return}
-      locked=false;
-    },1000);
   }
 }
 
 function startReviewRound(){
   reviewing=true;
-  reviewQueue=[];
-  for(let i=0;i<activeQuestions().length;i++){
-    if(!correctSet.has(i)) reviewQueue.push(i);
-  }
+  reviewQueue=[...missedQuestions].sort((a,b)=>a-b);
 
   if(!reviewQueue.length){
     showPass();
@@ -5449,9 +5458,20 @@ function goNext(){
   lastPieceAudioPromise=Promise.resolve(false);
   try{
     if(stageKey==="yoon" && yoonPhase==="listen"){
-      if(qIndex<activeQuestions().length-1){
+      if(reviewing){
+        if(reviewQueue.length){
+          qIndex=reviewQueue.shift();
+          renderQuestion();
+        }else if(missedQuestions.size===0){
+          startYoonWordPhase();
+        }else{
+          startReviewRound();
+        }
+      }else if(qIndex<activeQuestions().length-1){
         qIndex++;
         renderQuestion();
+      }else if(missedQuestions.size){
+        startReviewRound();
       }else{
         startYoonWordPhase();
       }
@@ -5463,11 +5483,8 @@ function goNext(){
         qIndex=reviewQueue.shift();
         renderQuestion();
       }else{
-        if(correctSet.size===activeQuestions().length){
-          showPass();
-        }else{
-          startReviewRound();
-        }
+        if(missedQuestions.size===0)showPass();
+        else startReviewRound();
       }
       return;
     }
@@ -5476,11 +5493,8 @@ function goNext(){
       qIndex++;
       renderQuestion();
     }else{
-      if(correctSet.size===activeQuestions().length){
-        showPass();
-      }else{
-        startReviewRound();
-      }
+      if(missedQuestions.size===0)showPass();
+      else startReviewRound();
     }
   }finally{
     questionTransitionPending=false;
@@ -5541,6 +5555,7 @@ async function startStage(key,{forceTest=false}={}){
   updateStageTestButton();
 
   correctSet=new Set();
+  missedQuestions=new Set();
   reviewQueue=[];
   reviewing=false;
   selectedQuestions=[];
