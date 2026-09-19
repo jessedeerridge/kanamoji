@@ -3905,8 +3905,8 @@ function renderYoonListeningQuestion(){
   if(!q) return;
 
   stageNameEl.textContent="拗音練習";
-  setQuestionProgressVisible(true);
-  updateQuestionProgress();
+  // 3文字から音を選ぶ画面では進捗の x/y 表示を出さない。
+  setQuestionProgressVisible(false);
 
   zhEl.textContent="";
   emojiEl.textContent="";
