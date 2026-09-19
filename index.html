@@ -3245,147 +3245,161 @@ function primeWordAudio(word){
 }
 
 function stopKanaAudio(){
-  if(activeKanaFinish)activeKanaFinish(false);
+  // 外部から停止された場合は、読み込み待ち中の古い再生要求も無効化する。
+  kanaPlaybackRequestId++;
+
   if(activeKanaSource){
-    try{activeKanaSource.stop()}catch(_){}
-    try{activeKanaSource.disconnect()}catch(_){}
+    const source=activeKanaSource;
     activeKanaSource=null;
+    try{source.onended=null}catch(_){}
+    try{source.stop(0)}catch(_){}
+    try{source.disconnect()}catch(_){}
   }
+
   if(activeKanaAudio){
-    try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
+    const audio=activeKanaAudio;
     activeKanaAudio=null;
+    try{audio.pause();audio.currentTime=0}catch(_){}
   }
-  activeKanaFinish=null;
+
+  if(activeKanaFinish){
+    const finish=activeKanaFinish;
+    activeKanaFinish=null;
+    try{finish(false)}catch(_){}
+  }
 }
 
-function playBufferOnce(buffer,{overlap=0,onSource=null}={}){
+// AudioContext は最初の一度だけでなく、各ユーザー操作時にも復帰を試みる。
+// iOS / 一部Android WebViewで、途中で suspended に戻る場合への対策。
+function wakeAudioContext(){
   const ctx=getWebAudioContext();
-  if(!ctx || !buffer) return null;
-  unlockWebAudio();
-
-  return new Promise(resolve=>{
-    let done=false;
-    const source=ctx.createBufferSource();
-    source.buffer=buffer;
-    source.connect(ctx.destination);
-    if(onSource)onSource(source);
-
-    const finish=ok=>{
-      if(done)return;
-      done=true;
-      clearTimeout(timer);
-      source.onended=null;
-      try{source.disconnect()}catch(_){}
-      resolve(ok);
-    };
-    source.onended=()=>finish(true);
-    const waitMs=Math.max(0,(buffer.duration-overlap)*1000);
-    const timer=setTimeout(()=>finish(true),waitMs+40);
-    try{source.start(0)}catch(_){finish(false)}
-  });
+  if(!ctx)return null;
+  if(ctx.state==="suspended"){
+    try{
+      const p=ctx.resume();
+      if(p&&typeof p.catch==="function")p.catch(()=>{});
+    }catch(_){}
+  }
+  return ctx;
 }
 
-async function playStemWebAudio(stem,requestId){
-  const buffer=await loadAudioBuffer(stem);
-  if(requestId!==kanaPlaybackRequestId)return false;
-  if(!buffer)return false;
-  const ctx=getWebAudioContext();
-  if(!ctx)return false;
-  unlockWebAudio();
+["pointerdown","touchstart","mousedown","keydown"].forEach(type=>{
+  window.addEventListener(type,wakeAudioContext,{passive:true});
+});
 
-  return new Promise(resolve=>{
-    let finished=false;
-    const source=ctx.createBufferSource();
-    source.buffer=buffer;
-    source.connect(ctx.destination);
-    activeKanaSource=source;
-
-    const finish=ok=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(watchdog);
-      source.onended=null;
-      try{source.disconnect()}catch(_){}
-      if(activeKanaSource===source){activeKanaSource=null;activeKanaFinish=null}
-      resolve(ok);
-    };
-    activeKanaFinish=finish;
-    source.onended=()=>finish(true);
-    const watchdog=setTimeout(()=>{
-      try{source.stop()}catch(_){}
-      finish(false);
-    },Math.min(AUDIO_END_TIMEOUT,Math.max(1000,buffer.duration*1000+700)));
-    try{source.start(0)}catch(_){finish(false)}
-  });
-}
-
-// Web Audio API が使えない／取得失敗時だけ従来方式へフォールバック。
 function playStemFallback(stem,requestId){
-  if(!stem || requestId!==kanaPlaybackRequestId) return Promise.resolve(false);
+  if(!stem || requestId!==kanaPlaybackRequestId)return Promise.resolve(false);
+
   const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
-  try{ a.currentTime=0; }catch(_){}
+  try{a.currentTime=0}catch(_){}
+
   return new Promise(resolve=>{
     let finished=false;
+    let startTimer=0;
+    let endTimer=0;
+
     const finish=ok=>{
       if(finished)return;
       finished=true;
-      clearTimeout(startWatchdog);
-      clearTimeout(endWatchdog);
-      a.removeEventListener("ended",ended);
-      a.removeEventListener("error",failed);
-      a.removeEventListener("canplay",start);
-      a.removeEventListener("loadeddata",start);
+      clearTimeout(startTimer);
+      clearTimeout(endTimer);
+      a.removeEventListener("ended",onEnded);
+      a.removeEventListener("error",onError);
       a.removeEventListener("playing",onPlaying);
-      if(activeKanaAudio===a){activeKanaAudio=null;activeKanaFinish=null}
+      if(activeKanaAudio===a)activeKanaAudio=null;
+      if(activeKanaFinish===finish)activeKanaFinish=null;
       resolve(ok);
     };
-    const ended=()=>finish(true),failed=()=>finish(false);
-    let endWatchdog=0;
+
+    const onEnded=()=>finish(true);
+    const onError=()=>finish(false);
     const onPlaying=()=>{
-      clearTimeout(startWatchdog);
-      endWatchdog=setTimeout(()=>{try{a.pause()}catch(_){}finish(false)},AUDIO_END_TIMEOUT);
+      clearTimeout(startTimer);
+      endTimer=setTimeout(()=>{
+        try{a.pause()}catch(_){}
+        finish(false);
+      },AUDIO_END_TIMEOUT);
     };
+
     activeKanaFinish=finish;
-    a.addEventListener("ended",ended,{once:true});
-    a.addEventListener("error",failed,{once:true});
+    a.addEventListener("ended",onEnded,{once:true});
+    a.addEventListener("error",onError,{once:true});
     a.addEventListener("playing",onPlaying,{once:true});
-    const startWatchdog=setTimeout(()=>{try{a.pause()}catch(_){}finish(false)},AUDIO_START_TIMEOUT);
-    let attempts=0,starting=false;
-    const start=()=>{
-      if(finished||starting)return;
-      starting=true;attempts++;
-      let played;
-      try{played=a.play()}catch(_){played=null}
-      if(played&&typeof played.catch==="function"){
-        played.catch(()=>{starting=false;if(attempts<3)setTimeout(start,80*attempts);else failed()});
-      }else if(!played&&a.paused){
-        starting=false;if(attempts<3)setTimeout(start,80*attempts);else failed();
-      }
-    };
-    if(a.readyState<2){
-      a.addEventListener("canplay",start,{once:true});
-      a.addEventListener("loadeddata",start,{once:true});
-      try{a.load()}catch(_){}
-      start();
-    }else start();
+
+    startTimer=setTimeout(()=>{
+      try{a.pause()}catch(_){}
+      finish(false);
+    },AUDIO_START_TIMEOUT);
+
+    let p;
+    try{p=a.play()}catch(_){p=null}
+    if(p&&typeof p.catch==="function")p.catch(()=>finish(false));
   });
 }
 
 async function playStem(stem){
   if(!stem)return false;
 
-  // 新しい文字が押された時点で前の音を即停止し、
-  // それ以前に開始された非同期再生要求をすべて無効化する。
-  const requestId=++kanaPlaybackRequestId;
+  // 1. 前の音・前の読み込み待ちを完全に破棄
   stopKanaAudio();
+  // 2. この再生専用の番号を発行
+  const requestId=++kanaPlaybackRequestId;
 
-  const ok=await playStemWebAudio(stem,requestId);
+  // ユーザー操作の直後に resume() を要求しておく。
+  const ctx=wakeAudioContext();
+
+  // 先読み済みなら即取得。未完了ならその音だけ待つ。
+  const buffer=await loadAudioBuffer(stem);
+
+  // 待っている間に別の文字が押されたなら、何も鳴らさない。
   if(requestId!==kanaPlaybackRequestId)return false;
-  if(ok)return true;
 
-  // 「新しい音に止められた」ケースでは旧方式へフォールバックしない。
-  // 本当に Web Audio の取得・再生に失敗した現在の要求だけフォールバックする。
+  if(ctx && buffer){
+    return new Promise(resolve=>{
+      let finished=false;
+      const source=ctx.createBufferSource();
+      source.buffer=buffer;
+      source.connect(ctx.destination);
+      activeKanaSource=source;
+
+      const finish=ok=>{
+        if(finished)return;
+        finished=true;
+        clearTimeout(watchdog);
+        try{source.onended=null}catch(_){}
+        try{source.disconnect()}catch(_){}
+        if(activeKanaSource===source)activeKanaSource=null;
+        if(activeKanaFinish===finish)activeKanaFinish=null;
+        resolve(ok);
+      };
+
+      activeKanaFinish=finish;
+      source.onended=()=>finish(true);
+      const watchdog=setTimeout(()=>finish(false),
+        Math.min(AUDIO_END_TIMEOUT,Math.max(1000,buffer.duration*1000+700))
+      );
+
+      // start直前にも最新要求か確認。
+      if(requestId!==kanaPlaybackRequestId){
+        finish(false);
+        return;
+      }
+
+      try{
+        source.start(0);
+      }catch(_){
+        finish(false);
+      }
+    }).then(async ok=>{
+      if(ok)return true;
+      // 「別の音に切り替わった」場合は絶対に再再生しない。
+      if(requestId!==kanaPlaybackRequestId)return false;
+      return playStemFallback(stem,requestId);
+    });
+  }
+
+  // Web Audio が使えない環境だけ従来再生へ。
   if(requestId!==kanaPlaybackRequestId)return false;
   return playStemFallback(stem,requestId);
 }
