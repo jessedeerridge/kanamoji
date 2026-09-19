@@ -3196,6 +3196,8 @@ const AUDIO_START_TIMEOUT = 1800;
 const AUDIO_END_TIMEOUT = 5000;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
+let kanaPlaybackQueue = Promise.resolve(false);
+let kanaPlaybackRun = 0;
 let lastPieceAudioPromise = Promise.resolve(true);
 let questionTransitionPending = false;
 
@@ -3290,7 +3292,7 @@ function primeStageAudio(key){
   loadStageAudio(key);
 }
 
-function stopKanaAudio(){
+function stopActiveKanaAudio(){
   if(activeKanaFinish)activeKanaFinish(false);
   if(activeKanaAudio){
     try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
@@ -3299,9 +3301,15 @@ function stopKanaAudio(){
   activeKanaFinish=null;
 }
 
-function playStem(stem){
-  if(!stem) return Promise.resolve(false);
-  stopKanaAudio();
+function stopKanaAudio(){
+  kanaPlaybackRun++;
+  kanaPlaybackQueue=Promise.resolve(false);
+  stopActiveKanaAudio();
+}
+
+function playStemNow(stem){
+  if(!stem)return Promise.resolve(false);
+  stopActiveKanaAudio();
   // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
   const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
@@ -3374,6 +3382,17 @@ function playStem(stem){
   });
 }
 
+
+function playStem(stem){
+  if(!stem)return Promise.resolve(false);
+  const run=kanaPlaybackRun;
+  // 高速入力でも要求順を固定する。前の音が終わる前に後の play() を発行しない。
+  const queued=kanaPlaybackQueue
+    .catch(()=>false)
+    .then(()=>run===kanaPlaybackRun ? playStemNow(stem) : false);
+  kanaPlaybackQueue=queued;
+  return queued;
+}
 
 
 function playDroppedKana(ch){
