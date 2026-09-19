@@ -3099,6 +3099,7 @@ let activeKanaSource = null;
 let lastPieceAudioPromise = Promise.resolve(true);
 let questionTransitionPending = false;
 let eagerAudioPreloadStarted = false;
+let kanaPlaybackRequestId = 0;
 
 function getWebAudioContext(){
   if(webAudioContext) return webAudioContext;
@@ -3284,10 +3285,10 @@ function playBufferOnce(buffer,{overlap=0,onSource=null}={}){
   });
 }
 
-async function playStemWebAudio(stem){
+async function playStemWebAudio(stem,requestId){
   const buffer=await loadAudioBuffer(stem);
+  if(requestId!==kanaPlaybackRequestId)return false;
   if(!buffer)return false;
-  stopKanaAudio();
   const ctx=getWebAudioContext();
   if(!ctx)return false;
   unlockWebAudio();
@@ -3319,9 +3320,8 @@ async function playStemWebAudio(stem){
 }
 
 // Web Audio API が使えない／取得失敗時だけ従来方式へフォールバック。
-function playStemFallback(stem){
-  if(!stem) return Promise.resolve(false);
-  stopKanaAudio();
+function playStemFallback(stem,requestId){
+  if(!stem || requestId!==kanaPlaybackRequestId) return Promise.resolve(false);
   const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
   try{ a.currentTime=0; }catch(_){}
@@ -3374,9 +3374,20 @@ function playStemFallback(stem){
 
 async function playStem(stem){
   if(!stem)return false;
-  const ok=await playStemWebAudio(stem);
+
+  // 新しい文字が押された時点で前の音を即停止し、
+  // それ以前に開始された非同期再生要求をすべて無効化する。
+  const requestId=++kanaPlaybackRequestId;
+  stopKanaAudio();
+
+  const ok=await playStemWebAudio(stem,requestId);
+  if(requestId!==kanaPlaybackRequestId)return false;
   if(ok)return true;
-  return playStemFallback(stem);
+
+  // 「新しい音に止められた」ケースでは旧方式へフォールバックしない。
+  // 本当に Web Audio の取得・再生に失敗した現在の要求だけフォールバックする。
+  if(requestId!==kanaPlaybackRequestId)return false;
+  return playStemFallback(stem,requestId);
 }
 
 function playDroppedKana(ch){
@@ -3407,6 +3418,7 @@ function stopWordAudioElements(){
 }
 function cancelWordAudio(){
   wordAudioRun++;
+  kanaPlaybackRequestId++;
   stopWordAudioElements();
   stopKanaAudio();
 }
