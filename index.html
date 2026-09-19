@@ -150,9 +150,9 @@ body{
   font-variant-numeric:tabular-nums;
 }
 .test-timer[hidden]{display:none}
-.test-fail-overlay{position:fixed;inset:0;z-index:150;display:none;place-items:center;background:rgba(0,0,0,.48);padding:20px}
+.test-fail-overlay{position:fixed;inset:0;z-index:150;display:none;place-items:center;padding:20px;pointer-events:none}
 .test-fail-overlay.open{display:grid}
-.test-fail-panel{width:min(360px,100%);padding:30px 24px;text-align:center;border:3px solid var(--ink);border-radius:20px;background:#fffdf8;box-shadow:7px 7px 0 var(--shadow)}
+.test-fail-panel{width:min(360px,100%);padding:30px 24px;text-align:center;border:3px solid var(--ink);border-radius:20px;background:#fffdf8;box-shadow:7px 7px 0 var(--shadow);pointer-events:none}
 .test-fail-panel h2{margin:0 0 22px;font-size:34px}
 .game-controls-right{
   display:flex;
@@ -2391,9 +2391,8 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 </div>
 
 <div class="test-fail-overlay" id="testFailOverlay" aria-hidden="true">
-  <div class="test-fail-panel" role="dialog" aria-modal="true" aria-labelledby="testFailTitle">
+  <div class="test-fail-panel" role="status" aria-live="assertive">
     <h2 id="testFailTitle">残念！</h2>
-    <button class="next-btn" id="testFailHome" type="button">ホームへ</button>
   </div>
 </div>
 
@@ -4409,6 +4408,11 @@ function checkAnswer(){
     resultEl.textContent="× もういちど";
     wrongSlots.forEach(slot=>slot.classList.add("correct-shake"));
     setTimeout(()=>{
+      if(shuffleMode){
+        // テストでは全回答を消し、候補ピースも新しい順番で作り直す。
+        renderQuestion();
+        return;
+      }
       wrongSlots.forEach(slot=>{
         slot.classList.remove("correct-shake");
         if(slot.dataset.prefilled!=="1")clearSlotKana(slot);
@@ -5641,6 +5645,9 @@ document.querySelectorAll(".title-stage-btn").forEach(btn=>{
 });
 
 bindTap(document.getElementById("titleBtn"),()=>{
+  const failOverlay=document.getElementById("testFailOverlay");
+  failOverlay.classList.remove("open");
+  failOverlay.setAttribute("aria-hidden","true");
   stopTestTimer();
   clearYoonAutoPlayTimer();
   cancelWordAudio();
@@ -5653,12 +5660,6 @@ bindTap(document.getElementById("titleBtn"),()=>{
 });
 
 bindTap(document.getElementById("stageTestBtn"),startCurrentStageTest);
-bindTap(document.getElementById("testFailHome"),()=>{
-  const overlay=document.getElementById("testFailOverlay");
-  overlay.classList.remove("open");
-  overlay.setAttribute("aria-hidden","true");
-  document.getElementById("titleBtn").click();
-});
 window.addEventListener("kana-practice-progress",updateStageTestButton);
 
 bindTap(document.getElementById("backBtn"),()=>{
