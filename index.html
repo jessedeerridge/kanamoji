@@ -4511,6 +4511,9 @@ function startQuizAfterMatch(){
 }
 
 function renderKatakanaAllStep(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -4655,6 +4658,9 @@ function renderKatakanaAllStep(){
 
 
 function renderHiraganaAllStep(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -4800,6 +4806,9 @@ function renderHiraganaAllStep(){
 }
 
 function renderHiraganaMatch(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -5028,6 +5037,9 @@ function renderHiraganaMatch(){
 }
 
 function renderKatakanaMatch(){
+  // 1文字ごとの画面更新も問題遷移として扱い、前の音声を完全に破棄する。
+  resetQuestionAudio();
+  lastPieceAudioPromise=Promise.resolve(false);
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
