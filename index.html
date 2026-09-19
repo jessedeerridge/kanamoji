@@ -3086,13 +3086,43 @@ const YOON_AUDIO_FILES = {
 };
 
 const kanaAudioCache = new Map();
+const audioBufferCache = new Map();
+const audioBufferLoading = new Map();
 const AUDIO_START_TIMEOUT = 1800;
 const AUDIO_END_TIMEOUT = 5000;
 const WORD_AUDIO_OVERLAP = 0.22;
+const AUDIO_PRELOAD_CONCURRENCY = 4;
+let webAudioContext = null;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
+let activeKanaSource = null;
 let lastPieceAudioPromise = Promise.resolve(true);
 let questionTransitionPending = false;
+let eagerAudioPreloadStarted = false;
+
+function getWebAudioContext(){
+  if(webAudioContext) return webAudioContext;
+  const Ctx=window.AudioContext||window.webkitAudioContext;
+  if(!Ctx) return null;
+  try{
+    webAudioContext=new Ctx({latencyHint:"interactive"});
+  }catch(_){
+    try{webAudioContext=new Ctx()}catch(__){webAudioContext=null}
+  }
+  return webAudioContext;
+}
+
+function unlockWebAudio(){
+  const ctx=getWebAudioContext();
+  if(ctx && ctx.state==="suspended"){
+    try{ctx.resume()}catch(_){}
+  }
+}
+
+// 最初のユーザー操作で AudioContext を確実に解放する。
+["pointerdown","touchstart","keydown","mousedown"].forEach(type=>{
+  window.addEventListener(type,unlockWebAudio,{once:true,passive:true});
+});
 
 function audioKanaToHira(ch){
   if(!ch) return "";
@@ -3103,6 +3133,7 @@ function audioKanaToHira(ch){
   return smallMap[hira]||hira;
 }
 
+// HTMLAudioElement は Web Audio API が使えない環境用の予備。
 function getCachedAudio(stem){
   if(kanaAudioCache.has(stem))return kanaAudioCache.get(stem);
   const a=new Audio(`./${stem}.mp3`);
@@ -3114,8 +3145,6 @@ function getCachedAudio(stem){
 
 function createPlaybackAudio(stem){
   const cached=getCachedAudio(stem);
-  // 同じ文字が連続する単語だけ一時要素を使う。保持はせず、再生終了時に
-  // activeWordAudios から除かれるのでAudio要素が蓄積しない。
   const audio=cached.paused || cached.ended ? cached : cached.cloneNode(true);
   audio.preload="auto";
   audio.playsInline=true;
@@ -3123,21 +3152,91 @@ function createPlaybackAudio(stem){
   return audio;
 }
 
-// 音声は再生要求時に直接読み込む。バックグラウンドの取得キューは、
-// 遅いリクエストが通信枠を占有して後続の再生まで止めるため使用しない。
+async function loadAudioBuffer(stem){
+  if(!stem) return null;
+  if(audioBufferCache.has(stem)) return audioBufferCache.get(stem);
+  if(audioBufferLoading.has(stem)) return audioBufferLoading.get(stem);
+
+  const ctx=getWebAudioContext();
+  if(!ctx) return null;
+
+  const task=(async()=>{
+    try{
+      // same-origin の MP3 を一度だけ取得し、PCM に展開してメモリへ保持。
+      // 以後の再生ではネットワークも HTMLAudioElement の読み込み待ちも発生しない。
+      const response=await fetch(`./${stem}.mp3`,{cache:"force-cache"});
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      const bytes=await response.arrayBuffer();
+      const buffer=await ctx.decodeAudioData(bytes.slice(0));
+      audioBufferCache.set(stem,buffer);
+      return buffer;
+    }catch(err){
+      console.warn("WebAudio preload failed:",stem,err);
+      return null;
+    }finally{
+      audioBufferLoading.delete(stem);
+    }
+  })();
+
+  audioBufferLoading.set(stem,task);
+  return task;
+}
+
+function allAudioStems(){
+  return [...new Set([
+    ...Object.values(KANA_AUDIO_FILES),
+    ...Object.values(YOON_AUDIO_FILES)
+  ].filter(Boolean))];
+}
+
+async function preloadAudioList(stems,{concurrency=AUDIO_PRELOAD_CONCURRENCY}={}){
+  const queue=[...new Set(stems.filter(Boolean))];
+  let cursor=0;
+  const worker=async()=>{
+    while(cursor<queue.length){
+      const i=cursor++;
+      await loadAudioBuffer(queue[i]);
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(concurrency,queue.length)},worker));
+}
+
+function startEagerAudioPreload(){
+  if(eagerAudioPreloadStarted)return;
+  eagerAudioPreloadStarted=true;
+  // ページ描画を先に終わらせ、その直後から全67音を少数並列で準備する。
+  const run=()=>preloadAudioList(allAudioStems()).catch(()=>{});
+  if("requestIdleCallback" in window){
+    requestIdleCallback(run,{timeout:700});
+  }else{
+    setTimeout(run,0);
+  }
+}
+
+// ページを開いた時点で先読み開始。中国本土でも外部APIは使わず同一サーバーだけを見る。
+if(document.readyState==="loading"){
+  document.addEventListener("DOMContentLoaded",startEagerAudioPreload,{once:true});
+}else{
+  startEagerAudioPreload();
+}
 
 function primeAudioStems(stems){
+  // いま必要な音は全体先読みとは別に最優先で要求する。
   for(const stem of new Set(stems.filter(Boolean))){
-    const audio=getCachedAudio(stem);
-    if(audio.readyState===0){
-      try{audio.load()}catch(_){}
-    }
+    loadAudioBuffer(stem);
   }
 }
 
 function primeStageAudio(key){
-  const rowKey=(key==="all" || key==="test") ? "a" : key;
-  primeAudioStems((ROWS[rowKey]||[]).map(kana=>KANA_AUDIO_FILES[kana]));
+  if(key==="yoon"){
+    primeAudioStems(Object.values(YOON_AUDIO_FILES));
+    return;
+  }
+  if(key==="all" || key==="test"){
+    primeAudioStems(Object.values(KANA_AUDIO_FILES));
+    return;
+  }
+  primeAudioStems((ROWS[key]||[]).map(kana=>KANA_AUDIO_FILES[kana]));
 }
 
 function primeWordAudio(word){
@@ -3146,6 +3245,11 @@ function primeWordAudio(word){
 
 function stopKanaAudio(){
   if(activeKanaFinish)activeKanaFinish(false);
+  if(activeKanaSource){
+    try{activeKanaSource.stop()}catch(_){}
+    try{activeKanaSource.disconnect()}catch(_){}
+    activeKanaSource=null;
+  }
   if(activeKanaAudio){
     try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
     activeKanaAudio=null;
@@ -3153,10 +3257,71 @@ function stopKanaAudio(){
   activeKanaFinish=null;
 }
 
-function playStem(stem){
+function playBufferOnce(buffer,{overlap=0,onSource=null}={}){
+  const ctx=getWebAudioContext();
+  if(!ctx || !buffer) return null;
+  unlockWebAudio();
+
+  return new Promise(resolve=>{
+    let done=false;
+    const source=ctx.createBufferSource();
+    source.buffer=buffer;
+    source.connect(ctx.destination);
+    if(onSource)onSource(source);
+
+    const finish=ok=>{
+      if(done)return;
+      done=true;
+      clearTimeout(timer);
+      source.onended=null;
+      try{source.disconnect()}catch(_){}
+      resolve(ok);
+    };
+    source.onended=()=>finish(true);
+    const waitMs=Math.max(0,(buffer.duration-overlap)*1000);
+    const timer=setTimeout(()=>finish(true),waitMs+40);
+    try{source.start(0)}catch(_){finish(false)}
+  });
+}
+
+async function playStemWebAudio(stem){
+  const buffer=await loadAudioBuffer(stem);
+  if(!buffer)return false;
+  stopKanaAudio();
+  const ctx=getWebAudioContext();
+  if(!ctx)return false;
+  unlockWebAudio();
+
+  return new Promise(resolve=>{
+    let finished=false;
+    const source=ctx.createBufferSource();
+    source.buffer=buffer;
+    source.connect(ctx.destination);
+    activeKanaSource=source;
+
+    const finish=ok=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(watchdog);
+      source.onended=null;
+      try{source.disconnect()}catch(_){}
+      if(activeKanaSource===source){activeKanaSource=null;activeKanaFinish=null}
+      resolve(ok);
+    };
+    activeKanaFinish=finish;
+    source.onended=()=>finish(true);
+    const watchdog=setTimeout(()=>{
+      try{source.stop()}catch(_){}
+      finish(false);
+    },Math.min(AUDIO_END_TIMEOUT,Math.max(1000,buffer.duration*1000+700)));
+    try{source.start(0)}catch(_){finish(false)}
+  });
+}
+
+// Web Audio API が使えない／取得失敗時だけ従来方式へフォールバック。
+function playStemFallback(stem){
   if(!stem) return Promise.resolve(false);
   stopKanaAudio();
-  // 再生ごとに要素を分け、同じ音が連続しても必ず先頭から鳴らす。
   const a=createPlaybackAudio(stem);
   activeKanaAudio=a;
   try{ a.currentTime=0; }catch(_){}
@@ -3179,56 +3344,40 @@ function playStem(stem){
     let endWatchdog=0;
     const onPlaying=()=>{
       clearTimeout(startWatchdog);
-      // 再生開始後の上限は別管理にし、読み込み失敗を長時間待たない。
-      endWatchdog=setTimeout(()=>{
-        try{a.pause()}catch(_){}
-        finish(false);
-      },AUDIO_END_TIMEOUT);
+      endWatchdog=setTimeout(()=>{try{a.pause()}catch(_){}finish(false)},AUDIO_END_TIMEOUT);
     };
     activeKanaFinish=finish;
     a.addEventListener("ended",ended,{once:true});
     a.addEventListener("error",failed,{once:true});
     a.addEventListener("playing",onPlaying,{once:true});
-    // 読み込み開始に失敗した音を8秒待つと後続音も全部詰まるため、
-    // 短い期限で打ち切ってキューを次へ進める。
-    const startWatchdog=setTimeout(()=>{
-      try{a.pause()}catch(_){}
-      finish(false);
-    },AUDIO_START_TIMEOUT);
-    let attempts=0;
-    let starting=false;
+    const startWatchdog=setTimeout(()=>{try{a.pause()}catch(_){}finish(false)},AUDIO_START_TIMEOUT);
+    let attempts=0,starting=false;
     const start=()=>{
       if(finished||starting)return;
-      starting=true;
-      attempts++;
+      starting=true;attempts++;
       let played;
       try{played=a.play()}catch(_){played=null}
       if(played&&typeof played.catch==="function"){
-        played.catch(()=>{
-          starting=false;
-          if(attempts<3){
-            // load() は取得済みバイトまで捨てる実装があるため呼ばない。
-            setTimeout(start,80*attempts);
-          }else failed();
-        });
+        played.catch(()=>{starting=false;if(attempts<3)setTimeout(start,80*attempts);else failed()});
       }else if(!played&&a.paused){
-        starting=false;
-        if(attempts<3){
-          setTimeout(start,80*attempts);
-        }else failed();
+        starting=false;if(attempts<3)setTimeout(start,80*attempts);else failed();
       }
     };
     if(a.readyState<2){
       a.addEventListener("canplay",start,{once:true});
       a.addEventListener("loadeddata",start,{once:true});
       try{a.load()}catch(_){}
-      // canplay が通知されないWebViewもあるので、play()自身にも読み込みを任せる。
       start();
     }else start();
   });
 }
 
-
+async function playStem(stem){
+  if(!stem)return false;
+  const ok=await playStemWebAudio(stem);
+  if(ok)return true;
+  return playStemFallback(stem);
+}
 
 function playDroppedKana(ch){
   const stem = stemForKana(ch);
@@ -3263,37 +3412,59 @@ function cancelWordAudio(){
 }
 
 function resetQuestionAudio(){
-  // 問題をまたいだ再生・再試行を残さない。
   cancelWordAudio();
-
   for(const audio of kanaAudioCache.values()){
     try{audio.pause();audio.currentTime=0}catch(_){}
   }
-
 }
-function playWordStem(stem,run){
-  if(!stem) return Promise.resolve(false);
+
+async function playWordStem(stem,run){
+  if(!stem || run!==wordAudioRun)return false;
+  const buffer=await loadAudioBuffer(stem);
+  if(run!==wordAudioRun)return false;
+
+  if(buffer){
+    const ctx=getWebAudioContext();
+    if(ctx){
+      unlockWebAudio();
+      return new Promise(resolve=>{
+        let finished=false;
+        const source=ctx.createBufferSource();
+        source.buffer=buffer;
+        source.connect(ctx.destination);
+        const token={};
+        const finish=ok=>{
+          if(finished)return;
+          finished=true;
+          clearTimeout(timer);
+          source.onended=null;
+          try{source.disconnect()}catch(_){}
+          activeWordAudios.delete(token);
+          resolve(ok);
+        };
+        const cancel=()=>{try{source.stop()}catch(_){}finish(false)};
+        activeWordAudios.set(token,cancel);
+        source.onended=()=>finish(true);
+        // 録音末尾の無音だけを少し重ねる。
+        const advanceMs=Math.max(0,(buffer.duration-WORD_AUDIO_OVERLAP)*1000);
+        const timer=setTimeout(()=>finish(true),advanceMs);
+        try{source.start(0)}catch(_){finish(false)}
+      });
+    }
+  }
+
+  // WebAudio が使えない場合の互換再生。
   const a=createPlaybackAudio(stem);
   try{a.currentTime=0}catch(_){}
   return new Promise(resolve=>{
-    let advanced=false;
-    let endTimer=0;
+    let advanced=false,endTimer=0;
     const advance=ok=>{if(advanced)return;advanced=true;clearTimeout(startTimer);clearTimeout(endTimer);resolve(ok)};
     const cleanup=()=>{a.removeEventListener("ended",ended);a.removeEventListener("error",failed);a.removeEventListener("playing",onPlaying);a.removeEventListener("timeupdate",nearEnd);activeWordAudios.delete(a)};
     const cancel=()=>{try{a.pause();a.currentTime=0}catch(_){}cleanup();advance(false)};
     const ended=()=>{cleanup();advance(true)};
     const failed=()=>{cleanup();advance(false)};
-    const nearEnd=()=>{
-      if(Number.isFinite(a.duration) && a.duration-a.currentTime<=WORD_AUDIO_OVERLAP){
-        // 録音末尾の無音だけを重ね、発音本体は欠けさせない。
-        a.removeEventListener("timeupdate",nearEnd);
-        advance(true);
-      }
-    };
-    const onPlaying=()=>{
-      clearTimeout(startTimer);
-      endTimer=setTimeout(cancel,AUDIO_END_TIMEOUT);
-    };
+    const nearEnd=()=>{if(Number.isFinite(a.duration)&&a.duration-a.currentTime<=WORD_AUDIO_OVERLAP){a.removeEventListener("timeupdate",nearEnd);advance(true)}};
+    const onPlaying=()=>{clearTimeout(startTimer);endTimer=setTimeout(cancel,AUDIO_END_TIMEOUT)};
     const startTimer=setTimeout(cancel,AUDIO_START_TIMEOUT);
     activeWordAudios.set(a,cancel);
     a.addEventListener("ended",ended,{once:true});
@@ -3307,23 +3478,16 @@ function playWordStem(stem,run){
       let played;
       try{played=a.play()}catch(_){played=null}
       if(played&&typeof played.then==="function"){
-        played.catch(()=>{
-          if(playAttempts<3){
-            // 読み込み直後などの一時的な play() 失敗は短時間で再試行する。
-            setTimeout(startPlayback,80*playAttempts);
-          }else{
-            failed();
-          }
-        });
+        played.catch(()=>{if(playAttempts<3)setTimeout(startPlayback,80*playAttempts);else failed()});
       }else if(!played&&a.paused){
-        if(playAttempts<3)setTimeout(startPlayback,80*playAttempts);
-        else failed();
+        if(playAttempts<3)setTimeout(startPlayback,80*playAttempts);else failed();
       }
     };
     startPlayback();
     if(run!==wordAudioRun)cancel();
   });
 }
+
 async function playWordAudio(word){
   stopWordAudioElements();
   stopKanaAudio();
