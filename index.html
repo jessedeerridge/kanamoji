@@ -3219,12 +3219,12 @@ function getCachedAudio(stem){
 
 function createPlaybackAudio(stem){
   const cached=getCachedAudio(stem);
-  // 同じ文字が連続する単語だけ一時要素を使う。保持はせず、再生終了時に
-  // activeWordAudios から除かれるのでAudio要素が蓄積しない。
-  const audio=cached.paused || cached.ended ? cached : cached.cloneNode(true);
+  // キャッシュ用要素は再生に使わない。毎回クローンを作ることで、短い間隔で
+  // pause/currentTime変更が重なったときのデコーダ停止を防ぐ。
+  const audio=cached.cloneNode(true);
   audio.preload="auto";
   audio.playsInline=true;
-  try{audio.pause();audio.currentTime=0}catch(_){}
+  try{audio.currentTime=0}catch(_){}
   return audio;
 }
 
@@ -5407,8 +5407,9 @@ let matchTransitionPending=false;
 function scheduleMatchTransition(callback,minimumDelay=180){
   if(matchTransitionPending)return;
   matchTransitionPending=true;
-  const audio=lastPieceAudioPromise;
-  Promise.all([audio.catch(()=>false),waitAudio(minimumDelay)]).then(()=>{
+  // 段階式では音声の終了（録音末尾の無音を含む）を待たず、表示だけを進める。
+  // 再生自体は続き、次の文字を押した時点で playStem が前音を停止する。
+  waitAudio(minimumDelay).then(()=>{
     matchTransitionPending=false;
     callback();
   });
@@ -5559,8 +5560,8 @@ async function startStage(key,{forceTest=false}={}){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
-  // 画面を切り替える前に、このステージで使う文字音声だけを完全取得する。
-  await loadStageAudio(key);
+  // 開始操作を最優先する。先読みは継続するが、通信完了を待たずに画面を開く。
+  loadStageAudio(key);
 
   // トップ画面からは常に練習。各行の練習完了後だけテストへ進める。
   shuffleMode=!!forceTest;
