@@ -122,6 +122,14 @@ body{
   margin-bottom:72px;
 }
 .game-controls-left{display:flex;gap:10px}
+.test-hearts{
+  align-self:center;
+  white-space:nowrap;
+  font-size:24px;
+  line-height:1;
+  letter-spacing:2px;
+}
+.test-hearts[hidden]{display:none}
 .game-controls-right{
   display:flex;
   gap:10px;
@@ -1221,6 +1229,8 @@ button,.title-practice-badge{
   }
 }
 
+
+.title-switch-row{justify-content:center}
 
 /* ===== トップ画面：上2ボタンは塗りつぶしではなく背景で差をつける ===== */
 #titleKanaModeButton,
@@ -2323,7 +2333,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
     <p>快速检查对全部平假名／片假名读音的掌握程度。</p>
 
     <h3>「テスト（测试）」</h3>
-    <p>从随机显示的多个文字中，选择与听到的发音相对应的文字，检查文字与发音之间的对应关系。</p>
+    <p>完成这一行的练习后，就可以挑战这一行的测试。测试中，从随机显示的多个文字中选择正确的文字。</p>
 
     <h3>「拗音（拗音）」</h3>
     <p>听「きゃ・しゅ・ちょ」等拗音，并选择正确的文字，检查对拗音发音和文字的掌握程度。</p>
@@ -2334,15 +2344,8 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   <div class="title-card">
     <div class="title-deco title-deco-1" aria-hidden="true">あ</div>
     <div class="title-deco title-deco-2" aria-hidden="true">ア</div>
-<div class="title-switch-row" aria-label="ゲーム設定">
-      <div class="title-switch-item">
-<span class="title-switch-label">もじ</span>
+<div class="title-switch-row" aria-label="文字種の切り替え">
 <span id="titleKanaModeButton" class="title-practice-badge" role="button" tabindex="0" aria-label="ひらがなとカタカナを切り替える">ひらがな</span>
-      </div>
-      <div class="title-switch-item">
-<span class="title-switch-label">モード</span>
-<span id="titleModeButton" class="title-practice-badge" role="button" tabindex="0" aria-label="練習とテストを切り替える">練習</span>
-      </div>
     </div>
 <div class="title-stage-grid">
       <button class="title-stage-btn" data-stage="a">あ行</button>
@@ -2371,6 +2374,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
         <path d="M3 15.2 16 4l13 11.2v12.3c0 .8-.7 1.5-1.5 1.5H20v-9h-8v9H4.5c-.8 0-1.5-.7-1.5-1.5V15.2Z" fill="currentColor"/>
       </svg>
     </button>
+      <div class="test-hearts" id="testHearts" aria-label="のこり3" hidden>💛💛💛</div>
       <button class="next-btn" id="stageTestBtn" type="button" hidden>测试</button>
     </div>
     <div class="game-controls-right">
@@ -2894,6 +2898,7 @@ let viewingSolvedQuestion=false;
 let selectedTile=null;
 let locked=false;
 let shuffleMode=false;
+let testLives=3;
 let correctSet=new Set();
 let reviewQueue=[];
 let reviewing=false;
@@ -2913,6 +2918,20 @@ function clearYoonAutoPlayTimer(){
     clearTimeout(yoonAutoPlayTimer);
     yoonAutoPlayTimer=null;
   }
+}
+
+function updateTestHearts(){
+  const hearts=document.getElementById("testHearts");
+  if(!hearts)return;
+  hearts.hidden=!shuffleMode;
+  hearts.textContent="💛".repeat(testLives);
+  hearts.setAttribute("aria-label",`のこり${testLives}`);
+}
+
+function loseTestHeart(){
+  if(!shuffleMode || testLives<=0)return;
+  testLives--;
+  updateTestHearts();
 }
 let katakanaMatchPhase=1;
 let katakanaStepIndex=0;
@@ -3976,6 +3995,7 @@ function renderYoonListeningQuestion(){
           startYoonWordPhase();
         }
       }else{
+        loseTestHeart();
         // 間違い：選んだピースは鳴らさず、少し置いて正解音だけを示す。
         piece.classList.add("correct-shake");
         resultEl.textContent="× もういちど";
@@ -4265,6 +4285,7 @@ function checkAnswer(){
         goNext();
       },320);
     }else{
+      loseTestHeart();
       locked=true;
       resultEl.textContent="× もういちど";
       slot.classList.add("correct-shake");
@@ -4303,6 +4324,7 @@ function checkAnswer(){
       goNext();
     },520);
   }else{
+    loseTestHeart();
     locked=true;
     resultEl.textContent="× もういちど";
 
@@ -5430,11 +5452,10 @@ async function startStage(key,{forceTest=false}={}){
   // 画面を切り替える前に、このステージで使う文字音声だけを完全取得する。
   await loadStageAudio(key);
 
-  const modeBtn=document.getElementById("titleModeButton");
-  const isTest = forceTest || (modeBtn && modeBtn.textContent.trim()==="测试");
-
-  // 練習＝通常配置、テスト＝同じステージのばらばら配置
-  shuffleMode = !!isTest;
+  // トップ画面からは常に練習。各行の練習完了後だけテストへ進める。
+  shuffleMode=!!forceTest;
+  testLives=3;
+  updateTestHearts();
   launchedStageKey=key;
   updateStageTestButton();
 
@@ -5628,38 +5649,7 @@ function requestStudentName(){
   return new Promise(resolve=>{const overlay=document.getElementById("nameOverlay"),form=document.getElementById("nameForm"),input=document.getElementById("studentName"),cancel=document.getElementById("nameCancel");input.value=localStorage.getItem("kanamoji_student_name")||"";overlay.classList.add("open");overlay.setAttribute("aria-hidden","false");setTimeout(()=>input.focus(),0);const close=v=>{overlay.classList.remove("open");overlay.setAttribute("aria-hidden","true");form.removeEventListener("submit",save);cancel.removeEventListener("click",stop);resolve(v)},save=e=>{e.preventDefault();const name=input.value.trim();if(!name){input.focus();return}localStorage.setItem("kanamoji_student_name",name);studentNameConfirmedThisSession=true;if(window.KanaProgress)window.KanaProgress.setName(name);close(true)},stop=()=>close(false);form.addEventListener("submit",save);cancel.addEventListener("click",stop)});
 }
 
-(function(){
-  const btn=document.getElementById("titleModeButton");
-  if(!btn) return;
 
-  const toggle=async()=>{
-    const toTest = btn.textContent.trim()==="練習";
-
-    // 練習 → テストに切り替える時だけアプリ内パスワード画面を表示
-    if(toTest){
-      const unlocked=await requestAppPassword("切换到测试模式需要密码。");
-      if(!unlocked) return;
-      const named=await requestStudentName();
-      if(!named) return;
-    }
-
-    btn.textContent = toTest ? "测试" : "練習";
-    // 練習／テスト切替後も、拗音練習ボタンの表示を再評価
-    updateStageButtonLabels();
-  };
-
-  bindTap(btn,(e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    toggle();
-  });
-  btn.addEventListener("keydown",(e)=>{
-    if(e.key==="Enter" || e.key===" "){
-      e.preventDefault();
-      toggle();
-    }
-  });
-})();
 
 </script>
 
