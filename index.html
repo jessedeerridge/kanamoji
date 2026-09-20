@@ -4072,6 +4072,20 @@ function renderYoonListeningQuestion(){
   resultEl.textContent="";
   slotsEl.className="slots yoon-listen-slots";
   slotsEl.innerHTML="";
+
+  // 聞いて3文字から1文字を選ぶ問題も、単語問題と同じ空枠とローマ字を上に表示する。
+  const listenUnit=document.createElement("div");
+  listenUnit.className="slot-unit yoon-slot-unit";
+  const listenSlot=document.createElement("div");
+  listenSlot.className="slot yoon-slot";
+  listenSlot.setAttribute("aria-label","えらんだもじ");
+  const listenRomaji=document.createElement("div");
+  listenRomaji.className="slot-romaji";
+  listenRomaji.textContent=yoonRomajiHint(q.target);
+  listenUnit.appendChild(listenSlot);
+  listenUnit.appendChild(listenRomaji);
+  slotsEl.appendChild(listenUnit);
+
   startTestTimer();
 
   // 「もういちど」は絵枠の中に表示
@@ -4121,6 +4135,7 @@ function renderYoonListeningQuestion(){
       if(pieceText===q.target){
         // 正解を押したときは、そのピース音声を再生しない
         piece.classList.add("yoon-correct");
+        setSlotKana(listenSlot,pieceText);
         if(reviewing)missedQuestions.delete(qIndex);
         resultEl.textContent="○ せいかい！";
 
@@ -4847,7 +4862,7 @@ function renderKatakanaAllStep(){
     }
   };
 
-  setupMatchInput(pieces,slots,finishOne);
+  setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
 }
 
 
@@ -4992,7 +5007,7 @@ function renderHiraganaAllStep(){
     }
   };
 
-  setupMatchInput(pieces,slots,finishOne);
+  setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
 }
 
 function renderHiraganaMatch(){
