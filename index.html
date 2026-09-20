@@ -3000,7 +3000,9 @@ function playMatchRowGuide(key,questionKey){
   // この問題が続く間は「行音声 → 3秒」を繰り返す。
   return (async()=>{
     while(run===matchGuideAudioRun && matchGuideAudioKey===guideKey){
-      await playStem(stem);
+      // 初回はクリックのユーザー操作中に play() まで到達させる。
+      // playStem() のPromiseキューを経由すると、特にWebView/iOSで自動再生判定が遅れる。
+      await playStemNow(stem);
       if(run!==matchGuideAudioRun || matchGuideAudioKey!==guideKey)return false;
       const completed=await waitMatchGuideDelay(3000);
       if(!completed)return false;
@@ -3344,8 +3346,14 @@ function fullyLoadAudioStem(stem){
   return task;
 }
 
-function loadStageAudio(key){
-  return Promise.all(stageAudioStems(key).map(fullyLoadAudioStem));
+async function loadStageAudio(key){
+  const stems=stageAudioStems(key);
+  const rowStem=ROW_AUDIO_FILES[key];
+  if(rowStem){
+    // 一問目の行音声の取得中は、1文字音声の並列取得で帯域を奪わない。
+    await fullyLoadAudioStem(rowStem);
+  }
+  return Promise.all(stems.filter(stem=>stem!==rowStem).map(fullyLoadAudioStem));
 }
 
 function primeStageAudio(key){
@@ -3401,7 +3409,11 @@ function playStemNow(stem){
       clearTimeout(startWatchdog);
       // 録音が5秒を超える場合も、実際の長さより前に打ち切らない。
       const durationMs=Number.isFinite(a.duration) ? a.duration*1000 : 0;
-      const playbackLimit=Math.max(AUDIO_END_TIMEOUT,durationMs+2000);
+      const isRowAudio=Object.values(ROW_AUDIO_FILES).includes(stem);
+      // 行音声は ended/error を主とし、端末の duration 誤差で途中停止しない30秒の安全弁にする。
+      const playbackLimit=isRowAudio
+        ? Math.max(30000,durationMs+10000)
+        : Math.max(AUDIO_END_TIMEOUT,durationMs+2000);
       endWatchdog=setTimeout(()=>{
         try{a.pause()}catch(_){}
         finish(false);
