@@ -3352,12 +3352,16 @@ function primeStageAudio(key){
 }
 
 function stopActiveKanaAudio(){
-  if(activeKanaFinish)activeKanaFinish(false);
-  if(activeKanaAudio){
-    try{ activeKanaAudio.pause(); activeKanaAudio.currentTime=0; }catch(_){}
-    activeKanaAudio=null;
-  }
+  const audio=activeKanaAudio;
+  const finish=activeKanaFinish;
+  // finish() は activeKanaAudio を null にするため、先に呼ぶと実体を pause できない。
+  // 参照を退避してから状態を切り離し、音声実体を停止した後でPromiseを完了させる。
+  activeKanaAudio=null;
   activeKanaFinish=null;
+  if(audio){
+    try{audio.pause();audio.currentTime=0}catch(_){}
+  }
+  if(finish)finish(false);
 }
 
 function stopKanaAudio(){
