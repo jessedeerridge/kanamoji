@@ -2370,7 +2370,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
     <div class="title-deco title-deco-1" aria-hidden="true">あ</div>
     <div class="title-deco title-deco-2" aria-hidden="true">ア</div>
 <div class="title-switch-row" aria-label="文字種の切り替え">
-<span id="titleKanaModeButton" class="title-practice-badge" role="button" tabindex="0" aria-label="ひらがなとカタカナを切り替える">ひらがな</span>
+<span id="titleKanaModeButton" class="title-practice-badge" role="button" tabindex="0" aria-label="ひらがなとカタカナを切り替える">モード　ひらがな</span>
     </div>
 <div class="title-stage-grid">
       <button class="title-stage-btn" data-stage="a">あ行</button>
@@ -2947,11 +2947,29 @@ let yoonPhase="listen";
 let yoonListenQuestions=[];
 let yoonWordQuestions=[];
 let yoonAutoPlayTimer=null;
+let matchGuideAudioRun=0;
 
 function clearYoonAutoPlayTimer(){
   if(yoonAutoPlayTimer!==null){
     clearTimeout(yoonAutoPlayTimer);
     yoonAutoPlayTimer=null;
+  }
+}
+
+function cancelMatchGuideAudio(){
+  matchGuideAudioRun++;
+}
+
+async function playMatchRowGuide(kana){
+  const run=++matchGuideAudioRun;
+
+  // 5文字のピースとは独立して、a・i・u・e・o段の順に一定の間を空けて読む。
+  for(let index=0;index<kana.length;index++){
+    if(index>0)await waitAudio(850);
+    if(run!==matchGuideAudioRun)return;
+    // 録音ごとの長さに左右されず、各音の再生開始を等間隔にする。
+    stopKanaAudio();
+    playKanaAudio(kana[index]);
   }
 }
 
@@ -3430,6 +3448,7 @@ function cancelWordAudio(){
 
 function resetQuestionAudio(){
   // 問題をまたいだ再生・再試行を残さない。
+  cancelMatchGuideAudio();
   cancelWordAudio();
 
   for(const audio of kanaAudioCache.values()){
@@ -3828,8 +3847,6 @@ function renderQuestion(){
     renderYoonBoard();
     boardEl.classList.toggle("solved-view",viewingSolvedQuestion);
 
-    // 拗音の単語問題だけ、表示した問題語を最初に一度だけ読む。
-    playQuestionWordOnce(word);
     startTestTimer();
     return;
   }
@@ -4955,6 +4972,7 @@ function renderHiraganaAllStep(){
 }
 
 function renderHiraganaMatch(){
+  cancelMatchGuideAudio();
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -5043,7 +5061,8 @@ function renderHiraganaMatch(){
       }
     };
 
-    setupMatchInput(pieces,slots,finishOne);
+    setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
+    if(actual.length===5)playMatchRowGuide(actual);
     return;
   }
 
@@ -5181,6 +5200,7 @@ function renderHiraganaMatch(){
 }
 
 function renderKatakanaMatch(){
+  cancelMatchGuideAudio();
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -5269,7 +5289,8 @@ function renderKatakanaMatch(){
       }
     };
 
-    setupMatchInput(pieces,slots,finishOne);
+    setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
+    if(actual.length===5)playMatchRowGuide(actual.map(toKatakana));
     return;
   }
 
@@ -5435,12 +5456,13 @@ function scheduleMatchTransition(callback,minimumDelay=180){
 }
 
 // マッチゲーム共通：クリック／タップ／ドラッグを Pointer Events で統一
-function setupMatchInput(pieces,slots,finishOne){
+function setupMatchInput(pieces,slots,finishOne,{playPieceAudio=true}={}){
   pieces.forEach(piece=>{
     const putIntoCurrentSlot=()=>{
       if(matchTransitionPending || piece.classList.contains("used"))return;
-      // マッチ用カードもクリック／タップで発音
-      lastPieceAudioPromise=playKanaAudio(piece.dataset.kana);
+      if(playPieceAudio){
+        lastPieceAudioPromise=playKanaAudio(piece.dataset.kana);
+      }
 
 
       // まだ正解していない一番左（段階式では現在）の枠へ入れる
@@ -5462,7 +5484,9 @@ function setupMatchInput(pieces,slots,finishOne){
       onDrop:slot=>{
         if(slot.dataset.done==="1") return;
         if(matchTransitionPending)return;
-        lastPieceAudioPromise=playDroppedKana(piece.dataset.kana || piece.dataset.char || piece.textContent.trim());
+        if(playPieceAudio){
+          lastPieceAudioPromise=playDroppedKana(piece.dataset.kana || piece.dataset.char || piece.textContent.trim());
+        }
         finishOne(slot,piece);
       }
     });
@@ -5760,7 +5784,7 @@ function requestAppPassword(message){
     }
 
     kanaScriptMode = toKatakanaMode ? "katakana" : "hiragana";
-    btn.textContent = toKatakanaMode ? "カタカナ" : "ひらがな";
+    btn.textContent = toKatakanaMode ? "モード　カタカナ" : "モード　ひらがな";
     updateStageButtonLabels();
   };
 
