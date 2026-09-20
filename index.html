@@ -2953,6 +2953,8 @@ let yoonPhase="listen";
 let yoonListenQuestions=[];
 let yoonWordQuestions=[];
 let yoonAutoPlayTimer=null;
+let matchGuideAudioRun=0;
+let matchGuideAudioKey=null;
 
 function clearYoonAutoPlayTimer(){
   if(yoonAutoPlayTimer!==null){
@@ -2962,15 +2964,30 @@ function clearYoonAutoPlayTimer(){
 }
 
 function cancelMatchGuideAudio(){
+  matchGuideAudioRun++;
+  matchGuideAudioKey=null;
   stopKanaAudio();
 }
 
 function playMatchRowGuide(key){
   const stem=ROW_AUDIO_FILES[key];
   if(!stem)return Promise.resolve(false);
-  // 5文字を1音ずつ鳴らさず、各マッチ問題の開始時に行の録音をすぐ再生する。
-  stopKanaAudio();
-  return playStem(stem);
+  // 間違えて同じ問題を最初からやり直しても、案内音声は再起動しない。
+  if(matchGuideAudioKey===key)return Promise.resolve(true);
+
+  cancelMatchGuideAudio();
+  matchGuideAudioKey=key;
+  const run=matchGuideAudioRun;
+
+  // この問題が続く間は「行音声 → 2秒」を繰り返す。
+  return (async()=>{
+    while(run===matchGuideAudioRun && matchGuideAudioKey===key){
+      await playStem(stem);
+      if(run!==matchGuideAudioRun || matchGuideAudioKey!==key)return false;
+      await waitAudio(2000);
+    }
+    return false;
+  })();
 }
 
 function updateTestHearts(){
@@ -4055,6 +4072,20 @@ function renderYoonListeningQuestion(){
   resultEl.textContent="";
   slotsEl.className="slots yoon-listen-slots";
   slotsEl.innerHTML="";
+
+  // 聞いて3文字から1文字を選ぶ問題も、単語問題と同じ空枠とローマ字を上に表示する。
+  const listenUnit=document.createElement("div");
+  listenUnit.className="slot-unit yoon-slot-unit";
+  const listenSlot=document.createElement("div");
+  listenSlot.className="slot yoon-slot";
+  listenSlot.setAttribute("aria-label","えらんだもじ");
+  const listenRomaji=document.createElement("div");
+  listenRomaji.className="slot-romaji";
+  listenRomaji.textContent=yoonRomajiHint(q.target);
+  listenUnit.appendChild(listenSlot);
+  listenUnit.appendChild(listenRomaji);
+  slotsEl.appendChild(listenUnit);
+
   startTestTimer();
 
   // 「もういちど」は絵枠の中に表示
@@ -4104,6 +4135,7 @@ function renderYoonListeningQuestion(){
       if(pieceText===q.target){
         // 正解を押したときは、そのピース音声を再生しない
         piece.classList.add("yoon-correct");
+        setSlotKana(listenSlot,pieceText);
         if(reviewing)missedQuestions.delete(qIndex);
         resultEl.textContent="○ せいかい！";
 
@@ -4683,6 +4715,8 @@ function shouldShowKatakanaMatch(key){
 }
 
 function startQuizAfterMatch(){
+  // マッチ問題を離れるときは、2秒待機中も含めて行音声のループを破棄する。
+  cancelMatchGuideAudio();
   setMatchNavigationHidden(false);
   restorePlayArea();
   qIndex=0;
@@ -4828,7 +4862,7 @@ function renderKatakanaAllStep(){
     }
   };
 
-  setupMatchInput(pieces,slots,finishOne);
+  setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
 }
 
 
@@ -4973,7 +5007,7 @@ function renderHiraganaAllStep(){
     }
   };
 
-  setupMatchInput(pieces,slots,finishOne);
+  setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
 }
 
 function renderHiraganaMatch(){
@@ -5188,7 +5222,6 @@ function renderHiraganaMatch(){
 
       // 失敗したら、その周の最初から。並びもシャッフルし直す
       setTimeout(()=>{
-        cancelMatchGuideAudio();
         hiraganaStepIndex=0;
         hiraganaStepSolved=[];
         hiraganaStepOrder=[...actual];
@@ -5433,7 +5466,6 @@ function renderKatakanaMatch(){
       if(statusEl) statusEl.innerHTML="<span>もういちど！</span>";
 
       setTimeout(()=>{
-        cancelMatchGuideAudio();
         katakanaStepIndex=0;
         katakanaStepSolved=[];
 
