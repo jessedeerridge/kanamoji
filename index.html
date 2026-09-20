@@ -2327,6 +2327,11 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 .stage-stamp{width:21px;height:21px;flex-basis:21px}
 .stage-stamp + .stage-stamp{margin-left:-11px}
 @media(max-width:340px){.stage-stamps{left:5px;right:auto}}
+
+/* モード名の右側に文字種の切り替えボタンを置く */
+.title-switch-row{display:flex;align-items:center;justify-content:center}
+.title-mode-label{flex:0 0 auto;font-size:22px;font-weight:800;white-space:nowrap}
+.title-switch-row .title-practice-badge{width:auto;min-width:150px}
 </style>
 </head>
 <body><div id="connectionState" class="connection-state" aria-live="polite">--/--</div><div class="name-overlay" id="nameOverlay" aria-hidden="true"><form class="name-panel" id="nameForm"><h2>なまえ</h2><p>テストの記録に使う名前を入力してください。</p><input id="studentName" maxlength="40" autocomplete="name" required aria-label="名前"><div class="name-actions"><button type="button" id="nameCancel">キャンセル</button><button class="name-save" type="submit">保存</button></div></form></div>
@@ -2370,7 +2375,8 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
     <div class="title-deco title-deco-1" aria-hidden="true">あ</div>
     <div class="title-deco title-deco-2" aria-hidden="true">ア</div>
 <div class="title-switch-row" aria-label="文字種の切り替え">
-<span id="titleKanaModeButton" class="title-practice-badge" role="button" tabindex="0" aria-label="ひらがなとカタカナを切り替える">モード　ひらがな</span>
+<span class="title-mode-label">モード</span>
+<button id="titleKanaModeButton" class="title-practice-badge" type="button" aria-label="ひらがなとカタカナを切り替える">ひらがな</button>
     </div>
 <div class="title-stage-grid">
       <button class="title-stage-btn" data-stage="a">あ行</button>
@@ -2963,13 +2969,10 @@ function cancelMatchGuideAudio(){
 async function playMatchRowGuide(kana){
   const run=++matchGuideAudioRun;
 
-  // 5文字のピースとは独立して、a・i・u・e・o段の順に一定の間を空けて読む。
-  for(let index=0;index<kana.length;index++){
-    if(index>0)await waitAudio(850);
+  // 5文字のピースとは独立して、a・i・u・e・o段を順に連続して読む。
+  for(const ch of kana){
     if(run!==matchGuideAudioRun)return;
-    // 録音ごとの長さに左右されず、各音の再生開始を等間隔にする。
-    stopKanaAudio();
-    playKanaAudio(kana[index]);
+    await playKanaAudio(ch);
   }
 }
 
@@ -4972,7 +4975,6 @@ function renderHiraganaAllStep(){
 }
 
 function renderHiraganaMatch(){
-  cancelMatchGuideAudio();
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -5039,6 +5041,7 @@ function renderHiraganaMatch(){
         if(completed===actual.length){
           if(statusEl) statusEl.innerHTML="<span>OK！</span>";
           scheduleMatchTransition(()=>{
+            cancelMatchGuideAudio();
             hiraganaMatchPhase=2;
             hiraganaStepIndex=0;
             hiraganaStepRound=0;
@@ -5080,6 +5083,7 @@ function renderHiraganaMatch(){
       if(statusEl) statusEl.innerHTML="<span>OK！</span><br><span>もういちど！</span>";
 
       setTimeout(()=>{
+        cancelMatchGuideAudio();
         hiraganaStepIndex=0;
         hiraganaStepSolved=[];
         hiraganaStepOrder=[...actual];
@@ -5182,6 +5186,7 @@ function renderHiraganaMatch(){
 
       // 失敗したら、その周の最初から。並びもシャッフルし直す
       setTimeout(()=>{
+        cancelMatchGuideAudio();
         hiraganaStepIndex=0;
         hiraganaStepSolved=[];
         hiraganaStepOrder=[...actual];
@@ -5196,11 +5201,11 @@ function renderHiraganaMatch(){
     }
   };
 
-  setupMatchInput(pieces,slots,finishOne);
+  setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
+  if(actual.length===5 && hiraganaStepIndex===0)playMatchRowGuide(actual);
 }
 
 function renderKatakanaMatch(){
-  cancelMatchGuideAudio();
   setMatchNavigationHidden(true);
   setQuestionProgressVisible(false);
 
@@ -5266,6 +5271,7 @@ function renderKatakanaMatch(){
         if(completed===actual.length){
           if(statusEl) statusEl.innerHTML="<span>OK！</span>";
           scheduleMatchTransition(()=>{
+            cancelMatchGuideAudio();
             katakanaMatchPhase=2;
             katakanaStepIndex=0;
             katakanaStepRound=0;
@@ -5388,6 +5394,7 @@ function renderKatakanaMatch(){
             if(statusEl) statusEl.innerHTML="<span>OK！</span><br><span>もういちど！</span>";
 
             setTimeout(()=>{
+              cancelMatchGuideAudio();
               katakanaStepIndex=0;
               katakanaStepSolved=[];
               katakanaStepOrder=[...actual];
@@ -5424,6 +5431,7 @@ function renderKatakanaMatch(){
       if(statusEl) statusEl.innerHTML="<span>もういちど！</span>";
 
       setTimeout(()=>{
+        cancelMatchGuideAudio();
         katakanaStepIndex=0;
         katakanaStepSolved=[];
 
@@ -5439,7 +5447,10 @@ function renderKatakanaMatch(){
     }
   };
 
-  setupMatchInput(pieces,slots,finishOne);
+  setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
+  if(actual.length===5 && katakanaStepIndex===0){
+    playMatchRowGuide(actual.map(toKatakana));
+  }
 }
 
 // マッチ画面は、選んだ文字の発音が完了するまで次の文字へ描き替えない。
@@ -5784,7 +5795,7 @@ function requestAppPassword(message){
     }
 
     kanaScriptMode = toKatakanaMode ? "katakana" : "hiragana";
-    btn.textContent = toKatakanaMode ? "モード　カタカナ" : "モード　ひらがな";
+    btn.textContent = toKatakanaMode ? "カタカナ" : "ひらがな";
     updateStageButtonLabels();
   };
 
@@ -5792,13 +5803,6 @@ function requestAppPassword(message){
     e.preventDefault();
     e.stopPropagation();
     toggle();
-  });
-
-  btn.addEventListener("keydown",(e)=>{
-    if(e.key==="Enter" || e.key===" "){
-      e.preventDefault();
-      toggle();
-    }
   });
 })();
 
