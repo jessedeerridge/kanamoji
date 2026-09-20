@@ -224,6 +224,7 @@ button,.title-practice-badge{
 
 /* ===== 通常クイズ：位置指定をここだけに一本化 ===== */
 .question{
+  --answer-center-offset:52px;
   position:relative;
   display:grid;
   grid-template-columns:86px 330px;
@@ -643,6 +644,7 @@ button,.title-practice-badge{
   .next-btn{padding:9px 12px;font-size:16px}
 
   .question{
+    --answer-center-offset:40px;
     grid-template-columns:68px minmax(0,275px);
     gap:12px;
     padding-bottom:54px;
@@ -743,6 +745,7 @@ button,.title-practice-badge{
   }
 
   .question{
+    --answer-center-offset:34px;
     grid-template-columns:60px minmax(0,1fr);
     gap:8px;
     padding-bottom:52px;
@@ -1689,6 +1692,7 @@ body[data-kana-mode="katakana"] .yoon-stage-btn{
   align-items:center;
   justify-content:center;
   min-height:74px;
+  transform:translateX(calc(0px - var(--answer-center-offset)));
 }
 
 .yoon-replay-btn{
