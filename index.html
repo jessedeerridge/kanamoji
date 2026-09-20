@@ -2968,11 +2968,14 @@ function cancelMatchGuideAudio(){
 
 async function playMatchRowGuide(kana){
   const run=++matchGuideAudioRun;
+  const intervalMs=500;
 
-  // 5文字のピースとは独立して、a・i・u・e・o段を順に連続して読む。
-  for(const ch of kana){
+  // 録音の長さを待たず、短い一定間隔でa・i・u・e・o段を読み進める。
+  for(let index=0;index<kana.length;index++){
+    if(index>0)await waitAudio(intervalMs);
     if(run!==matchGuideAudioRun)return;
-    await playKanaAudio(ch);
+    stopKanaAudio();
+    playKanaAudio(kana[index]);
   }
 }
 
