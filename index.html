@@ -2985,22 +2985,24 @@ function waitMatchGuideDelay(ms){
   });
 }
 
-function playMatchRowGuide(key){
+function playMatchRowGuide(key,questionKey){
   const stem=ROW_AUDIO_FILES[key];
   if(!stem)return Promise.resolve(false);
+  const guideKey=`${kanaScriptMode}:${key}:${questionKey}`;
   // 間違えて同じ問題を最初からやり直しても、案内音声は再起動しない。
-  if(matchGuideAudioKey===key)return Promise.resolve(true);
+  if(matchGuideAudioKey===guideKey)return Promise.resolve(true);
 
+  // 問題識別子が変わったら、旧音声と待機タイマーを先に完全停止する。
   cancelMatchGuideAudio();
-  matchGuideAudioKey=key;
+  matchGuideAudioKey=guideKey;
   const run=matchGuideAudioRun;
 
-  // この問題が続く間は「行音声 → 4秒」を繰り返す。
+  // この問題が続く間は「行音声 → 3秒」を繰り返す。
   return (async()=>{
-    while(run===matchGuideAudioRun && matchGuideAudioKey===key){
+    while(run===matchGuideAudioRun && matchGuideAudioKey===guideKey){
       await playStem(stem);
-      if(run!==matchGuideAudioRun || matchGuideAudioKey!==key)return false;
-      const completed=await waitMatchGuideDelay(4000);
+      if(run!==matchGuideAudioRun || matchGuideAudioKey!==guideKey)return false;
+      const completed=await waitMatchGuideDelay(3000);
       if(!completed)return false;
     }
     return false;
@@ -4732,7 +4734,7 @@ function shouldShowKatakanaMatch(key){
 }
 
 function startQuizAfterMatch(){
-  // マッチ問題を離れるときは、4秒待機中も含めて行音声のループを破棄する。
+  // マッチ問題を離れるときは、3秒待機中も含めて行音声のループを破棄する。
   cancelMatchGuideAudio();
   setMatchNavigationHidden(false);
   restorePlayArea();
@@ -5118,7 +5120,7 @@ function renderHiraganaMatch(){
     };
 
     setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
-    playMatchRowGuide(stageKey);
+    playMatchRowGuide(stageKey,"phase1");
     return;
   }
 
@@ -5254,7 +5256,7 @@ function renderHiraganaMatch(){
   };
 
   setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
-  if(hiraganaStepIndex===0)playMatchRowGuide(stageKey);
+  if(hiraganaStepIndex===0)playMatchRowGuide(stageKey,`phase2-${hiraganaStepRound}`);
 }
 
 function renderKatakanaMatch(){
@@ -5348,7 +5350,7 @@ function renderKatakanaMatch(){
     };
 
     setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
-    playMatchRowGuide(stageKey);
+    playMatchRowGuide(stageKey,"phase1");
     return;
   }
 
@@ -5500,7 +5502,7 @@ function renderKatakanaMatch(){
 
   setupMatchInput(pieces,slots,finishOne,{playPieceAudio:false});
   if(katakanaStepIndex===0){
-    playMatchRowGuide(stageKey);
+    playMatchRowGuide(stageKey,`phase2-${katakanaStepRound}`);
   }
 }
 
@@ -5754,6 +5756,7 @@ bindTap(document.getElementById("titleBtn"),()=>{
   failOverlay.setAttribute("aria-hidden","true");
   stopTestTimer();
   clearYoonAutoPlayTimer();
+  cancelMatchGuideAudio();
   cancelWordAudio();
   gameScreen.classList.remove("active");
   const stageTestBtn=document.getElementById("stageTestBtn");
