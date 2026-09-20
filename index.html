@@ -3253,6 +3253,7 @@ const ROW_AUDIO_FILES = {
 const kanaAudioCache = new Map();
 const AUDIO_START_TIMEOUT = 1800;
 const AUDIO_END_TIMEOUT = 5000;
+const ROW_AUDIO_START_TIMEOUT = 6000;
 let activeKanaAudio = null;
 let activeKanaFinish = null;
 let kanaPlaybackQueue = Promise.resolve(false);
@@ -3309,7 +3310,8 @@ function stageAudioStems(key){
     return [...new Set((STAGES.test?.questions||[])
       .flatMap(item=>wordAudioUnits(item.w).map(stemForKana)).filter(Boolean))];
   }
-  return [...(ROWS[key]||[]).map(kana=>KANA_AUDIO_FILES[kana]),ROW_AUDIO_FILES[key]].filter(Boolean);
+  // 一問目で即再生する行音声を、1文字音声より先に取得する。
+  return [ROW_AUDIO_FILES[key],...(ROWS[key]||[]).map(kana=>KANA_AUDIO_FILES[kana])].filter(Boolean);
 }
 
 function fullyLoadAudioStem(stem){
@@ -3347,7 +3349,8 @@ function loadStageAudio(key){
 }
 
 function primeStageAudio(key){
-  // pointerdownから取得を始め、click処理では同じPromiseを待つ。
+  // pointerdownの時点で行音声のmedia読み込みを最優先で開始する。
+  primeAudioStems([ROW_AUDIO_FILES[key]]);
   loadStageAudio(key);
 }
 
@@ -3396,11 +3399,13 @@ function playStemNow(stem){
     let endWatchdog=0;
     const onPlaying=()=>{
       clearTimeout(startWatchdog);
-      // 再生開始後の上限は別管理にし、読み込み失敗を長時間待たない。
+      // 録音が5秒を超える場合も、実際の長さより前に打ち切らない。
+      const durationMs=Number.isFinite(a.duration) ? a.duration*1000 : 0;
+      const playbackLimit=Math.max(AUDIO_END_TIMEOUT,durationMs+2000);
       endWatchdog=setTimeout(()=>{
         try{a.pause()}catch(_){}
         finish(false);
-      },AUDIO_END_TIMEOUT);
+      },playbackLimit);
     };
     activeKanaFinish=finish;
     a.addEventListener("ended",ended,{once:true});
@@ -3408,10 +3413,13 @@ function playStemNow(stem){
     a.addEventListener("playing",onPlaying,{once:true});
     // 読み込み開始に失敗した音を8秒待つと後続音も全部詰まるため、
     // 短い期限で打ち切ってキューを次へ進める。
+    const startTimeout=Object.values(ROW_AUDIO_FILES).includes(stem)
+      ? ROW_AUDIO_START_TIMEOUT
+      : AUDIO_START_TIMEOUT;
     const startWatchdog=setTimeout(()=>{
       try{a.pause()}catch(_){}
       finish(false);
-    },AUDIO_START_TIMEOUT);
+    },startTimeout);
     let attempts=0;
     let starting=false;
     const start=()=>{
@@ -5671,6 +5679,8 @@ async function startStage(key,{forceTest=false}={}){
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
+  // clickから開始した場合も、行音声のmedia読み込みを先に走らせる。
+  primeAudioStems([ROW_AUDIO_FILES[key]]);
   // 開始操作を最優先する。先読みは継続するが、通信完了を待たずに画面を開く。
   loadStageAudio(key);
 
