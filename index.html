@@ -2054,15 +2054,6 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 
-/* た行以降：未学習エリアを薄く表示 */
-.title-stage-btn.stage-password-locked{
-  opacity:.18;
-  filter:saturate(.20);
-}
-.title-stage-btn.stage-password-locked:hover{
-  opacity:.28;
-}
-
 /* Custom password popup */
 .password-overlay{
   position:fixed;inset:0;z-index:10050;display:none;align-items:center;justify-content:center;
@@ -2382,15 +2373,15 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
       <button class="title-stage-btn" data-stage="a">あ行</button>
       <button class="title-stage-btn" data-stage="k">か行</button>
       <button class="title-stage-btn" data-stage="s">さ行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="t">た行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="n">な行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="h">は行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="m">ま行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="y">や行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="r">ら行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="w">わ行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="all">ぜんぶ</button>
-      <button class="title-stage-btn yoon-stage-btn stage-password-locked" data-stage="yoon">拗音練習</button>
+      <button class="title-stage-btn" data-stage="t">た行</button>
+      <button class="title-stage-btn" data-stage="n">な行</button>
+      <button class="title-stage-btn" data-stage="h">は行</button>
+      <button class="title-stage-btn" data-stage="m">ま行</button>
+      <button class="title-stage-btn" data-stage="y">や行</button>
+      <button class="title-stage-btn" data-stage="r">ら行</button>
+      <button class="title-stage-btn" data-stage="w">わ行</button>
+      <button class="title-stage-btn" data-stage="all">ぜんぶ</button>
+      <button class="title-stage-btn yoon-stage-btn" data-stage="yoon">拗音練習</button>
     </div>
     <div class="audio-credit">声：音読さん</div>
   </div>
@@ -5726,18 +5717,9 @@ async function startStage(key,{forceTest=false}={}){
   }
 }
 
-const PASSWORD_LOCKED_STAGES = new Set(["t","n","h","m","y","r","w","all","yoon"]);
-
 document.querySelectorAll(".title-stage-btn").forEach(btn=>{
   btn.addEventListener("pointerdown",()=>primeStageAudio(btn.dataset.stage),{passive:true});
-  bindTap(btn,async ()=>{
-    const stage=btn.dataset.stage;
-    if(PASSWORD_LOCKED_STAGES.has(stage)){
-      const unlocked=await requestAppPassword("此内容需要密码。");
-      if(!unlocked)return;
-    }
-    startStage(stage);
-  });
+  bindTap(btn,()=>startStage(btn.dataset.stage));
 });
 
 bindTap(document.getElementById("titleBtn"),()=>{
