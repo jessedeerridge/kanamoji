@@ -224,6 +224,7 @@ button,.title-practice-badge{
 
 /* ===== 通常クイズ：位置指定をここだけに一本化 ===== */
 .question{
+  --answer-center-offset:52px;
   position:relative;
   display:grid;
   grid-template-columns:86px 330px;
@@ -643,6 +644,7 @@ button,.title-practice-badge{
   .next-btn{padding:9px 12px;font-size:16px}
 
   .question{
+    --answer-center-offset:40px;
     grid-template-columns:68px minmax(0,275px);
     gap:12px;
     padding-bottom:54px;
@@ -743,6 +745,7 @@ button,.title-practice-badge{
   }
 
   .question{
+    --answer-center-offset:34px;
     grid-template-columns:60px minmax(0,1fr);
     gap:8px;
     padding-bottom:52px;
@@ -1689,6 +1692,7 @@ body[data-kana-mode="katakana"] .yoon-stage-btn{
   align-items:center;
   justify-content:center;
   min-height:74px;
+  transform:translateX(calc(0px - var(--answer-center-offset)));
 }
 
 .yoon-replay-btn{
@@ -2054,15 +2058,6 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 
-/* た行以降：未学習エリアを薄く表示 */
-.title-stage-btn.stage-password-locked{
-  opacity:.18;
-  filter:saturate(.20);
-}
-.title-stage-btn.stage-password-locked:hover{
-  opacity:.28;
-}
-
 /* Custom password popup */
 .password-overlay{
   position:fixed;inset:0;z-index:10050;display:none;align-items:center;justify-content:center;
@@ -2330,7 +2325,7 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 
 /* モード名の右側に文字種の切り替えボタンを置く */
 .title-switch-row{display:flex;align-items:center;justify-content:center}
-.title-mode-label{flex:0 0 auto;font-size:22px;font-weight:800;white-space:nowrap}
+.title-mode-label{flex:0 0 auto;font-size:22px;font-weight:200;white-space:nowrap}
 .title-switch-row .title-practice-badge{width:auto;min-width:150px}
 </style>
 </head>
@@ -2382,15 +2377,15 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
       <button class="title-stage-btn" data-stage="a">あ行</button>
       <button class="title-stage-btn" data-stage="k">か行</button>
       <button class="title-stage-btn" data-stage="s">さ行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="t">た行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="n">な行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="h">は行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="m">ま行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="y">や行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="r">ら行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="w">わ行</button>
-      <button class="title-stage-btn stage-password-locked" data-stage="all">ぜんぶ</button>
-      <button class="title-stage-btn yoon-stage-btn stage-password-locked" data-stage="yoon">拗音練習</button>
+      <button class="title-stage-btn" data-stage="t">た行</button>
+      <button class="title-stage-btn" data-stage="n">な行</button>
+      <button class="title-stage-btn" data-stage="h">は行</button>
+      <button class="title-stage-btn" data-stage="m">ま行</button>
+      <button class="title-stage-btn" data-stage="y">や行</button>
+      <button class="title-stage-btn" data-stage="r">ら行</button>
+      <button class="title-stage-btn" data-stage="w">わ行</button>
+      <button class="title-stage-btn" data-stage="all">ぜんぶ</button>
+      <button class="title-stage-btn yoon-stage-btn" data-stage="yoon">拗音練習</button>
     </div>
     <div class="audio-credit">声：音読さん</div>
   </div>
@@ -2955,6 +2950,8 @@ let yoonWordQuestions=[];
 let yoonAutoPlayTimer=null;
 let matchGuideAudioRun=0;
 let matchGuideAudioKey=null;
+let matchGuideDelayTimer=0;
+let matchGuideDelayFinish=null;
 
 function clearYoonAutoPlayTimer(){
   if(yoonAutoPlayTimer!==null){
@@ -2966,7 +2963,26 @@ function clearYoonAutoPlayTimer(){
 function cancelMatchGuideAudio(){
   matchGuideAudioRun++;
   matchGuideAudioKey=null;
+  if(matchGuideDelayFinish)matchGuideDelayFinish(false);
   stopKanaAudio();
+}
+
+function waitMatchGuideDelay(ms){
+  return new Promise(resolve=>{
+    let finished=false;
+    const finish=completed=>{
+      if(finished)return;
+      finished=true;
+      if(matchGuideDelayTimer){
+        clearTimeout(matchGuideDelayTimer);
+        matchGuideDelayTimer=0;
+      }
+      if(matchGuideDelayFinish===finish)matchGuideDelayFinish=null;
+      resolve(completed);
+    };
+    matchGuideDelayFinish=finish;
+    matchGuideDelayTimer=setTimeout(()=>finish(true),ms);
+  });
 }
 
 function playMatchRowGuide(key){
@@ -2979,12 +2995,13 @@ function playMatchRowGuide(key){
   matchGuideAudioKey=key;
   const run=matchGuideAudioRun;
 
-  // この問題が続く間は「行音声 → 2秒」を繰り返す。
+  // この問題が続く間は「行音声 → 4秒」を繰り返す。
   return (async()=>{
     while(run===matchGuideAudioRun && matchGuideAudioKey===key){
       await playStem(stem);
       if(run!==matchGuideAudioRun || matchGuideAudioKey!==key)return false;
-      await waitAudio(2000);
+      const completed=await waitMatchGuideDelay(4000);
+      if(!completed)return false;
     }
     return false;
   })();
@@ -4715,7 +4732,7 @@ function shouldShowKatakanaMatch(key){
 }
 
 function startQuizAfterMatch(){
-  // マッチ問題を離れるときは、2秒待機中も含めて行音声のループを破棄する。
+  // マッチ問題を離れるときは、4秒待機中も含めて行音声のループを破棄する。
   cancelMatchGuideAudio();
   setMatchNavigationHidden(false);
   restorePlayArea();
@@ -5726,18 +5743,9 @@ async function startStage(key,{forceTest=false}={}){
   }
 }
 
-const PASSWORD_LOCKED_STAGES = new Set(["t","n","h","m","y","r","w","all","yoon"]);
-
 document.querySelectorAll(".title-stage-btn").forEach(btn=>{
   btn.addEventListener("pointerdown",()=>primeStageAudio(btn.dataset.stage),{passive:true});
-  bindTap(btn,async ()=>{
-    const stage=btn.dataset.stage;
-    if(PASSWORD_LOCKED_STAGES.has(stage)){
-      const unlocked=await requestAppPassword("此内容需要密码。");
-      if(!unlocked)return;
-    }
-    startStage(stage);
-  });
+  bindTap(btn,()=>startStage(btn.dataset.stage));
 });
 
 bindTap(document.getElementById("titleBtn"),()=>{
