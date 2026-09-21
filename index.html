@@ -4741,7 +4741,9 @@ function setMatchNavigationHidden(hidden){
   const back=document.getElementById("backBtn");
   const next=document.getElementById("nextBtn");
   if(back) back.style.display = hidden ? "none" : "";
-  if(next) next.style.display = hidden ? "none" : "";
+  // テストは回答操作だけで進める。未回答のまま正解扱いになり得る
+  // 「つぎ」ボタンは練習モードでだけ表示する。
+  if(next) next.style.display = hidden || shuffleMode ? "none" : "";
 }
 
 function shouldShowHiraganaMatch(key){
@@ -5698,6 +5700,7 @@ async function startStage(key,{forceTest=false}={}){
 
   // トップ画面からは常に練習。各行の練習完了後だけテストへ進める。
   shuffleMode=!!forceTest;
+  setMatchNavigationHidden(false);
   testLives=3;
   updateTestHearts();
   launchedStageKey=key;
@@ -5805,6 +5808,11 @@ bindTap(document.getElementById("backBtn"),()=>{
 
 bindTap(document.getElementById("nextBtn"),()=>{
   if(locked)return;
+  // 練習で未正解の問題を飛ばした場合は、完了には数えず復習対象にする。
+  // 復習対象は通常問題を一巡したあと、startReviewRound() で再出題される。
+  if(isPracticeMode() && !correctSet.has(qIndex)){
+    missedQuestions.add(qIndex);
+  }
   goNext();
 });
 
