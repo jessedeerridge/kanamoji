@@ -2443,6 +2443,22 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 const LOCAL_KEY="kanamoji_progress_v1",config={apiKey:"AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",authDomain:"database-s-9e4b3.firebaseapp.com",databaseURL:"https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"database-s-9e4b3",storageBucket:"database-s-9e4b3.firebasestorage.app",messagingSenderId:"13648984683",appId:"1:13648984683:web:c782d2963c253df69b8f2e"};
 const safeKey=s=>encodeURIComponent(s.trim()).replaceAll(".","%2E").replaceAll("#","%23").replaceAll("$","%24").replaceAll("[","%5B").replaceAll("]","%5D").replaceAll("/","%2F"),localProgressKey=()=>`${LOCAL_KEY}:${safeKey(localStorage.getItem("kanamoji_student_name")||"anonymous")}`,readLocal=()=>{try{const saved=localStorage.getItem(localProgressKey());if(saved)return JSON.parse(saved);const legacy=JSON.parse(localStorage.getItem(LOCAL_KEY)||"{}");return legacy.name===(localStorage.getItem("kanamoji_student_name")||"")?legacy:{}}catch{return {}}},writeLocal=d=>localStorage.setItem(localProgressKey(),JSON.stringify(d)),state=document.getElementById("connectionState");let api=null;
 const progressStageKey=stage=>`${document.body.dataset.kanaMode||"hiragana"}:${stage}`;
+function promoteAllPracticeAchievements(data){
+  data.stages=data.stages||{};
+  data.practiceStages=data.practiceStages||{};
+  data.pendingAttempts=Array.isArray(data.pendingAttempts)?data.pendingAttempts:[];
+  for(const script of ["hiragana","katakana"]){
+    const key=`${script}:all`,practice=data.practiceStages[key],test=data.stages[key];
+    if(!practice?.cleared||Number(test?.bestPct)>=100)continue;
+    const achievedAt=Number(practice.lastAt)||Date.now();
+    data.stages[key]={bestPct:100,count:Math.max(1,Number(test?.count)||0,Number(practice.count)||0),lastAt:Math.max(achievedAt,Number(test?.lastAt)||0)};
+    const id=`kana_all_practice_${script}_${achievedAt}`;
+    if(!data.pendingAttempts.some(attempt=>attempt.id===id)){
+      data.pendingAttempts.push({id,name:data.name||localStorage.getItem("kanamoji_student_name")||"",mode:"かなテスト",conjugation:key,script,stage:"all",percent:100,reason:"complete",achievedAt});
+    }
+  }
+  return data;
+}
 function renderStamps(data=readLocal()){const script=document.body.dataset.kanaMode||"hiragana";document.querySelectorAll(".title-stage-btn[data-stage]").forEach(btn=>{const progress=data.stages?.[`${script}:${btn.dataset.stage}`]||{},achieved=Number(progress.bestPct)>=100,count=achieved?Math.min(3,Math.max(1,Number(progress.count)||0)):0;btn.querySelector(".stage-stamps")?.remove();if(!count)return;const stamps=document.createElement("span");stamps.className="stage-stamps";stamps.setAttribute("aria-label",`達成 ${count}回`);for(let i=0;i<count;i++){const img=document.createElement("img");img.src="./stamp.png";img.alt="";img.className="stage-stamp";const offset=-16+Math.random()*32,angle=-2+Math.random()*4;img.style.transform=`translateY(${offset.toFixed(2)}px) rotate(${angle.toFixed(2)}deg)`;stamps.appendChild(img)}btn.appendChild(stamps)})}
 function mergeProgress(local,remote,name){const merged={name,stages:{},practiceStages:{}};for(const stage of new Set([...Object.keys(remote.stages||{}),...Object.keys(local.stages||{})])){const l=local.stages?.[stage]||{},r=remote.stages?.[stage]||{};merged.stages[stage]={bestPct:Math.max(Number(l.bestPct)||0,Number(r.bestPct)||0),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}for(const stage of new Set([...Object.keys(remote.practiceStages||{}),...Object.keys(local.practiceStages||{})])){const l=local.practiceStages?.[stage]||{},r=remote.practiceStages?.[stage]||{};merged.practiceStages[stage]={cleared:Boolean(l.cleared||r.cleared),count:Math.max(Number(l.count)||0,Number(r.count)||0),lastAt:Math.max(Number(l.lastAt)||0,Number(r.lastAt)||0)}}return merged}
 async function sync(){
@@ -2458,9 +2474,9 @@ async function sync(){
   }catch(error){
     console.warn("Kana progress read failed; continuing with local data.",error);
   }
-  const merged=mergeProgress(local,remote,name);
+  const merged=promoteAllPracticeAchievements(mergeProgress(local,remote,name));
   const now=Date.now();
-  const pendingAttempts=Array.isArray(local.pendingAttempts)?local.pendingAttempts:[];
+  const pendingAttempts=Array.from(new Map([...(Array.isArray(local.pendingAttempts)?local.pendingAttempts:[]),...merged.pendingAttempts].map(attempt=>[attempt.id,attempt])).values());
   const studentPatch={
     [`students/${key}/studentKey`]:key,
     [`students/${key}/name`]:name,
@@ -2500,7 +2516,40 @@ async function sync(){
     console.error("Kana progress write failed.",error);
   }
 }
-window.KanaProgress={setName(){try{const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){const name=localStorage.getItem("kanamoji_student_name")||"",merged=mergeProgress(readLocal(),anonymous,name);merged.pendingAttempts=anonymous.pendingAttempts||[];writeLocal(merged);localStorage.removeItem(anonymousKey)}}catch(_){}renderStamps();return sync()},refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{},now=Date.now(),name=localStorage.getItem("kanamoji_student_name")||data.name||"",id=`kana_${now}_${Math.random().toString(36).slice(2,9)}`;data.name=name;data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:now};data.pendingAttempts=data.pendingAttempts||[];data.pendingAttempts.push({id,name,mode:"かなテスト",conjugation:key,script:document.body.dataset.kanaMode||"hiragana",stage,percent:pct,reason:"complete",achievedAt:now});writeLocal(data);renderStamps(data);return sync()},recordPractice(stage){const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{};data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";data.practiceStages=data.practiceStages||{};data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:Date.now()};writeLocal(data);window.dispatchEvent(new CustomEvent("kana-practice-progress"));return sync()}};renderStamps();
+function recordPracticeProgress(stage){
+  const data=readLocal(),key=progressStageKey(stage),old=data.practiceStages?.[key]||{},now=Date.now();
+  data.name=localStorage.getItem("kanamoji_student_name")||data.name||"";
+  data.practiceStages=data.practiceStages||{};
+  data.practiceStages[key]={cleared:true,count:(Number(old.count)||0)+1,lastAt:now};
+  if(stage==="all"){
+    const previous=data.stages?.[key]||{},script=document.body.dataset.kanaMode||"hiragana",id=`kana_${now}_${Math.random().toString(36).slice(2,9)}`;
+    data.stages=data.stages||{};
+    data.stages[key]={bestPct:100,count:(Number(previous.count)||0)+1,lastAt:now};
+    data.pendingAttempts=Array.isArray(data.pendingAttempts)?data.pendingAttempts:[];
+    data.pendingAttempts.push({id,name:data.name,mode:"かなテスト",conjugation:key,script,stage,percent:100,reason:"complete",achievedAt:now});
+  }
+  writeLocal(data);
+  renderStamps(data);
+  window.dispatchEvent(new CustomEvent("kana-practice-progress"));
+  return sync();
+}
+function setProgressName(){
+  try{
+    const anonymousKey=`${LOCAL_KEY}:${safeKey("anonymous")}`,anonymous=JSON.parse(localStorage.getItem(anonymousKey)||"{}");
+    if(Object.keys(anonymous.stages||{}).length||Object.keys(anonymous.practiceStages||{}).length){
+      const name=localStorage.getItem("kanamoji_student_name")||"",current=readLocal(),merged=mergeProgress(current,anonymous,name);
+      merged.pendingAttempts=Array.from(new Map([...(current.pendingAttempts||[]),...(anonymous.pendingAttempts||[])].map(attempt=>[attempt.id,{...attempt,name}])).values());
+      writeLocal(promoteAllPracticeAchievements(merged));
+      localStorage.removeItem(anonymousKey);
+    }
+  }catch(_){}
+  renderStamps();
+  return sync();
+}
+window.KanaProgress={setName:setProgressName,refresh:renderStamps,hasPractice(stage){return Boolean(readLocal().practiceStages?.[progressStageKey(stage)]?.cleared)},record(stage,pct){const data=readLocal(),key=progressStageKey(stage),old=data.stages?.[key]||{},now=Date.now(),name=localStorage.getItem("kanamoji_student_name")||data.name||"",id=`kana_${now}_${Math.random().toString(36).slice(2,9)}`;data.name=name;data.stages=data.stages||{};data.stages[key]={bestPct:Math.max(Number(old.bestPct)||0,pct),count:(Number(old.count)||0)+1,lastAt:now};data.pendingAttempts=data.pendingAttempts||[];data.pendingAttempts.push({id,name,mode:"かなテスト",conjugation:key,script:document.body.dataset.kanaMode||"hiragana",stage,percent:pct,reason:"complete",achievedAt:now});writeLocal(data);renderStamps(data);return sync()},recordPractice:recordPracticeProgress};
+const initialProgress=readLocal(),migratedProgress=promoteAllPracticeAchievements(initialProgress);
+writeLocal(migratedProgress);
+renderStamps(migratedProgress);
 Promise.all([
   import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
   import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")
@@ -4603,7 +4652,7 @@ function showPass(){
            style="height:${keepHeight}px;min-height:${keepHeight}px">
         <div class="complete-content">
           <div class="complete-title">${titleText}</div>
-          ${completedTest ? "" : '<button class="next-btn practice-test-btn" id="completeStageTestBtn" type="button">测试这一行</button>'}
+          ${completedTest || launchedStageKey==="all" ? "" : '<button class="next-btn practice-test-btn" id="completeStageTestBtn" type="button">测试这一行</button>'}
         </div>
       </div>
     `;
@@ -5680,7 +5729,7 @@ function updateStageTestButton(){
   const stageTestBtn=document.getElementById("stageTestBtn");
   if(!stageTestBtn)return;
   const practiceCleared=Boolean(window.KanaProgress?.hasPractice(launchedStageKey));
-  stageTestBtn.hidden=shuffleMode||!practiceCleared;
+  stageTestBtn.hidden=shuffleMode||launchedStageKey==="all"||!practiceCleared;
 }
 
 async function startCurrentStageTest(){
@@ -5690,6 +5739,8 @@ async function startCurrentStageTest(){
 }
 
 async function startStage(key,{forceTest=false}={}){
+  // 「ぜんぶ」の練習達成はテスト達成として保存するため、開始前に名前を確定する。
+  if(key==="all"&&!forceTest&&!await requestStudentName())return;
   const guideBtn=document.getElementById("guideBtn");
   if(guideBtn) guideBtn.style.display="none";
 
