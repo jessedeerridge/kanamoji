@@ -2058,33 +2058,6 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 
-/* Custom password popup */
-.password-overlay{
-  position:fixed;inset:0;z-index:10050;display:none;align-items:center;justify-content:center;
-  padding:20px;background:rgba(0,0,0,.30);
-}
-.password-overlay.open{display:flex}
-.password-panel{
-  width:min(390px,90vw);padding:26px 24px 22px;text-align:center;
-  border:3px solid var(--ink);border-radius:20px;background:#fffdf8;
-  box-shadow:7px 7px 0 var(--shadow);font-family:var(--zh-font);color:var(--ink);
-}
-.password-panel h2{margin:0 0 8px;font-size:23px}
-.password-panel p{margin:0 0 16px;font-size:15px;line-height:1.6}
-.password-input{
-  box-sizing:border-box;width:100%;height:48px;padding:7px 12px;text-align:center;
-  font-size:22px;letter-spacing:4px;border:2px solid var(--ink);border-radius:12px;background:#fff;outline:none;
-}
-.password-error{min-height:25px;margin:8px 0 0!important;color:#c62828;font-size:14px!important;font-weight:700}
-.password-actions{display:flex;gap:10px;margin-top:12px}
-.password-actions button{
-  flex:1;min-height:44px;border:2px solid var(--ink);border-radius:12px;background:#fff;
-  box-shadow:3px 3px 0 var(--shadow);font-family:var(--zh-font);font-size:16px;font-weight:800;cursor:pointer;
-}
-.password-actions .password-ok{background:#fff3b8}
-.password-actions button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
-
-
 /* ===== トップ画面の文字色を統一 ===== */
 .title-screen,
 .title-screen h1,
@@ -2179,26 +2152,6 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 }
 
 
-/* パスワード：小さいポップアップ */
-.password-box,
-.password-modal-box,
-.pw-box{
-  width:min(280px, calc(100vw - 40px)) !important;
-  max-width:280px !important;
-  padding:18px 16px 14px !important;
-  border-radius:14px !important;
-}
-.password-box input,
-.password-modal-box input,
-.pw-box input{
-  width:100% !important;
-  min-height:38px !important;
-  font-size:16px !important;
-  padding:7px 10px !important;
-  box-sizing:border-box !important;
-}
-
-
 /* 音読さん：枠の外に確実に表示 */
 .audio-credit{
   position:static !important;
@@ -2213,35 +2166,6 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
   opacity:.72 !important;
   visibility:visible !important;
   overflow:visible !important;
-}
-
-
-/* パスワードポップ：さらに小さく */
-.password-box,
-.password-modal-box,
-.pw-box{
-  width:190px !important;
-  max-width:calc(100vw - 32px) !important;
-  padding:10px 12px 9px !important;
-  border-radius:10px !important;
-}
-.password-box input,
-.password-modal-box input,
-.pw-box input{
-  width:100% !important;
-  height:30px !important;
-  min-height:30px !important;
-  padding:3px 7px !important;
-  font-size:14px !important;
-  border-radius:6px !important;
-  box-sizing:border-box !important;
-}
-.password-box button,
-.password-modal-box button,
-.pw-box button{
-  min-height:28px !important;
-  padding:4px 10px !important;
-  font-size:13px !important;
 }
 
 
@@ -2330,19 +2254,6 @@ body:has(.game-screen.active) .guide-btn{display:none!important;}
 </style>
 </head>
 <body><div id="connectionState" class="connection-state" aria-live="polite">--/--</div><div class="name-overlay" id="nameOverlay" aria-hidden="true"><form class="name-panel" id="nameForm"><h2>なまえ</h2><p>テストの記録に使う名前を入力してください。</p><input id="studentName" maxlength="40" autocomplete="name" required aria-label="名前"><div class="name-actions"><button type="button" id="nameCancel">キャンセル</button><button class="name-save" type="submit">保存</button></div></form></div>
-<div class="password-overlay" id="passwordOverlay" aria-hidden="true">
-  <div class="password-panel" role="dialog" aria-modal="true" aria-labelledby="passwordTitle">
-    <h2 id="passwordTitle">请输入密码</h2>
-    <p id="passwordMessage">请输入密码后继续。</p>
-    <input id="passwordInput" class="password-input" type="password" inputmode="numeric" autocomplete="off" aria-label="密码">
-    <p id="passwordError" class="password-error"></p>
-    <div class="password-actions">
-      <button id="passwordCancel" type="button">取消</button>
-      <button id="passwordOk" class="password-ok" type="button">确认</button>
-    </div>
-  </div>
-</div>
-
 <button class="guide-btn" id="guideBtn" type="button">说明</button>
 <div class="guide-overlay" id="guideOverlay" aria-hidden="true">
   <div class="guide-panel" role="dialog" aria-modal="true" aria-labelledby="guideTitle">
@@ -4798,14 +4709,16 @@ function setMatchNavigationHidden(hidden){
 function shouldShowHiraganaMatch(key){
   // 拗音練習は通常のひらがなマッチを通さず、直接拗音問題へ入る
   return kanaScriptMode==="hiragana"
-    && !shuffleMode
     && key!=="test"
     && key!=="all"
     && key!=="yoon";
 }
 
 function shouldShowKatakanaMatch(key){
-  return kanaScriptMode==="katakana" && !shuffleMode && key!=="test";
+  return kanaScriptMode==="katakana"
+    && key!=="test"
+    && key!=="all"
+    && key!=="yoon";
 }
 
 function startQuizAfterMatch(){
@@ -5202,6 +5115,13 @@ function renderHiraganaMatch(){
   // --------------------------------------------------
   // 2回目：段階式マッチを2周
   // --------------------------------------------------
+  if(!hiraganaStepOrder.length){
+    hiraganaStepOrder=[...actual];
+    for(let i=hiraganaStepOrder.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [hiraganaStepOrder[i],hiraganaStepOrder[j]]=[hiraganaStepOrder[j],hiraganaStepOrder[i]];
+    }
+  }
   const current=validSteps[hiraganaStepIndex];
 
   if(!current){
@@ -5437,6 +5357,14 @@ function renderKatakanaMatch(){
   const validSteps=layout
     .map((ch,index)=>({ch,index}))
     .filter(x=>x.ch);
+
+  if(!katakanaStepOrder.length){
+    katakanaStepOrder=[...actual];
+    for(let i=katakanaStepOrder.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [katakanaStepOrder[i],katakanaStepOrder[j]]=[katakanaStepOrder[j],katakanaStepOrder[i]];
+    }
+  }
 
   // や行・わ行のように文字が3つしかない行は、存在する段だけ順に進める
   const current=validSteps[katakanaStepIndex];
@@ -5802,7 +5730,9 @@ async function startStage(key,{forceTest=false}={}){
   }
 
   if(shouldShowHiraganaMatch(key)){
-    hiraganaMatchPhase=1;
+    // テスト前は通常マッチを省き、aiueo順に選ぶ段階式を2回成功するまで行う。
+    // この導入問題ではテスト本編のハートを消費しない。
+    hiraganaMatchPhase=shuffleMode ? 2 : 1;
     hiraganaStepIndex=0;
     hiraganaStepRound=0;
     hiraganaStepOrder=[];
@@ -5813,7 +5743,8 @@ async function startStage(key,{forceTest=false}={}){
   }
 
   if(shouldShowKatakanaMatch(key)){
-    katakanaMatchPhase=1;
+    // テスト前も練習の2・3回目と同じ段階式から開始する。
+    katakanaMatchPhase=shuffleMode ? 2 : 1;
     katakanaStepIndex=0;
     katakanaStepRound=0;
     katakanaStepOrder=[];
@@ -5869,61 +5800,12 @@ bindTap(document.getElementById("nextBtn"),()=>{
 
 updateStageButtonLabels();
 
-function requestAppPassword(message){
-  return new Promise((resolve)=>{
-    const overlay=document.getElementById("passwordOverlay");
-    const input=document.getElementById("passwordInput");
-    const msg=document.getElementById("passwordMessage");
-    const error=document.getElementById("passwordError");
-    const ok=document.getElementById("passwordOk");
-    const cancel=document.getElementById("passwordCancel");
-    if(!overlay||!input||!msg||!error||!ok||!cancel){ resolve(false); return; }
-
-    msg.textContent=message;
-    input.value="";
-    error.textContent="";
-    overlay.classList.add("open");
-    overlay.setAttribute("aria-hidden","false");
-    setTimeout(()=>input.focus(),0);
-
-    const cleanup=()=>{
-      overlay.classList.remove("open");
-      overlay.setAttribute("aria-hidden","true");
-      ok.removeEventListener("click",submit);
-      cancel.removeEventListener("click",close);
-      input.removeEventListener("keydown",keydown);
-      overlay.removeEventListener("click",outside);
-    };
-    const close=()=>{ cleanup(); resolve(false); };
-    const submit=()=>{
-      if(input.value==="222"){ cleanup(); resolve(true); }
-      else{ error.textContent="密码错误。请重新输入。"; input.value=""; input.focus(); }
-    };
-    const keydown=(e)=>{
-      if(e.key==="Enter"){ e.preventDefault(); submit(); }
-      else if(e.key==="Escape"){ e.preventDefault(); close(); }
-    };
-    const outside=(e)=>{ if(e.target===overlay) close(); };
-    ok.addEventListener("click",submit);
-    cancel.addEventListener("click",close);
-    input.addEventListener("keydown",keydown);
-    overlay.addEventListener("click",outside);
-  });
-}
-
 (function(){
   const btn=document.getElementById("titleKanaModeButton");
   if(!btn) return;
 
-  const toggle=async()=>{
+  const toggle=()=>{
     const toKatakanaMode = kanaScriptMode==="hiragana";
-
-    // ひらがな → カタカナに切り替える時だけアプリ内パスワード画面を表示
-    if(toKatakanaMode){
-      const unlocked=await requestAppPassword("切换到片假名模式需要密码。");
-      if(!unlocked) return;
-    }
-
     kanaScriptMode = toKatakanaMode ? "katakana" : "hiragana";
     btn.textContent = toKatakanaMode ? "カタカナ" : "ひらがな";
     updateStageButtonLabels();
